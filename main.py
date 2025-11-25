@@ -406,6 +406,36 @@ elif shutil.which("apt"):
 elif shutil.which("pacman"):
     managers.append(PacmanManager())
 
+# --- Curated Apps Data ---
+
+CURATED_APPS = {
+    "Browsers": [
+        {"name": "Google Chrome", "flatpak": "com.google.Chrome", "snap": "google-chrome", "desc": "Web Browser"},
+        {"name": "Firefox", "flatpak": "org.mozilla.firefox", "snap": "firefox", "desc": "Web Browser"},
+        {"name": "Brave", "flatpak": "com.brave.Browser", "snap": "brave", "desc": "Privacy Browser"},
+    ],
+    "Development": [
+        {"name": "VS Code", "flatpak": "com.visualstudio.code", "snap": "code", "desc": "Code Editor"},
+        {"name": "PyCharm Community", "flatpak": "com.jetbrains.PyCharm-Community", "snap": "pycharm-community", "desc": "Python IDE"},
+        {"name": "Sublime Text", "flatpak": "com.sublimetext.three", "snap": "sublime-text", "desc": "Text Editor"},
+    ],
+    "Communication": [
+        {"name": "Discord", "flatpak": "com.discordapp.Discord", "snap": "discord", "desc": "Chat for Gamers"},
+        {"name": "Slack", "flatpak": "com.slack.Slack", "snap": "slack", "desc": "Team Communication"},
+        {"name": "Zoom", "flatpak": "us.zoom.Zoom", "snap": "zoom-client", "desc": "Video Conferencing"},
+    ],
+    "Multimedia": [
+        {"name": "VLC", "flatpak": "org.videolan.VLC", "snap": "vlc", "desc": "Media Player"},
+        {"name": "Spotify", "flatpak": "com.spotify.Client", "snap": "spotify", "desc": "Music Streaming"},
+        {"name": "OBS Studio", "flatpak": "com.obsproject.Studio", "snap": "obs-studio", "desc": "Streaming Software"},
+    ],
+    "Tools": [
+        {"name": "GIMP", "flatpak": "org.gimp.GIMP", "snap": "gimp", "desc": "Image Editor"},
+        {"name": "Inkscape", "flatpak": "org.inkscape.Inkscape", "snap": "inkscape", "desc": "Vector Graphics"},
+        {"name": "Blender", "flatpak": "org.blender.Blender", "snap": "blender", "desc": "3D Creation Suite"},
+    ]
+}
+
 # --- Interactive Functions ---
 
 def interactive_search():
@@ -521,25 +551,120 @@ def interactive_list():
                     console.print(Panel(info_text, title=f"Info: {app_id}", border_style=mgr.color))
                 Prompt.ask("Press Enter to continue")
 
+def interactive_curated():
+    selected_apps = set() # Stores (category, index) tuples
+    
+    while True:
+        console.clear()
+        console.print(Panel("[bold green]Curated App Installer[/bold green]", subtitle="Select apps to install"))
+        
+        # Flatten list for display
+        display_list = []
+        
+        current_idx = 1
+        table = Table(show_header=True, header_style="bold magenta")
+        table.add_column("Sel", style="bold yellow", width=4)
+        table.add_column("#", style="dim", width=4)
+        table.add_column("Category", style="cyan")
+        table.add_column("Name", style="bold white")
+        table.add_column("Description")
+        
+        for cat, apps in CURATED_APPS.items():
+            for i, app_data in enumerate(apps):
+                is_selected = (cat, i) in selected_apps
+                sel_mark = "[green][x][/green]" if is_selected else "[dim][ ][/dim]"
+                
+                table.add_row(
+                    sel_mark,
+                    str(current_idx),
+                    cat if i == 0 else "", # Only show category once
+                    app_data['name'],
+                    app_data['desc']
+                )
+                display_list.append((cat, i))
+                current_idx += 1
+        
+        console.print(table)
+        
+        choice = Prompt.ask("Enter # to toggle, 'i' to install selected, or 'b' to back")
+        
+        if choice.lower() == 'b':
+            break
+        elif choice.lower() == 'i':
+            if not selected_apps:
+                console.print("[yellow]No apps selected.[/yellow]")
+                Prompt.ask("Press Enter to continue")
+                continue
+            
+            # Install Logic
+            console.clear()
+            console.print(Panel(f"[bold green]Installing {len(selected_apps)} applications...[/bold green]"))
+            
+            for cat, i in selected_apps:
+                app_data = CURATED_APPS[cat][i]
+                name = app_data['name']
+                
+                # Determine manager priority: Flatpak > Snap > System (Not implemented in data yet)
+                # For now, we use Flatpak if available, else Snap.
+                
+                installed = False
+                
+                # Try Flatpak
+                flatpak_mgr = next((m for m in managers if isinstance(m, FlatpakManager)), None)
+                if flatpak_mgr and 'flatpak' in app_data:
+                    console.print(f"Installing [cyan]{name}[/cyan] via Flatpak...")
+                    flatpak_mgr.install(app_data['flatpak'])
+                    installed = True
+                
+                # Try Snap if not installed
+                if not installed:
+                    snap_mgr = next((m for m in managers if isinstance(m, SnapManager)), None)
+                    if snap_mgr and 'snap' in app_data:
+                        console.print(f"Installing [cyan]{name}[/cyan] via Snap...")
+                        snap_mgr.install(app_data['snap'])
+                        installed = True
+                
+                if not installed:
+                    console.print(f"[red]Could not find a suitable manager for {name}[/red]")
+            
+            console.print("\n[bold green]Batch installation complete![/bold green]")
+            Prompt.ask("Press Enter to continue")
+            selected_apps.clear()
+            
+        elif choice.isdigit():
+            idx = int(choice) - 1
+            if 0 <= idx < len(display_list):
+                target = display_list[idx]
+                if target in selected_apps:
+                    selected_apps.remove(target)
+                else:
+                    selected_apps.add(target)
+            else:
+                console.print("[red]Invalid selection.[/red]")
+                Prompt.ask("Press Enter to continue")
+
 def main_menu():
     while True:
         console.clear()
         console.print(Panel("[bold magenta]Universal Linux Package Manager (ULPM)[/bold magenta]", subtitle="Flatpak, Snap & System Packages"))
         console.print("1. [bold cyan]Search & Install[/bold cyan]")
-        console.print("2. [bold green]List & Manage Installed[/bold green]")
-        console.print("3. [bold blue]Update All[/bold blue]")
-        console.print("4. [bold red]Exit[/bold red]")
+        console.print("2. [bold green]Curated Apps[/bold green]")
+        console.print("3. [bold yellow]List & Manage Installed[/bold yellow]")
+        console.print("4. [bold blue]Update All[/bold blue]")
+        console.print("5. [bold red]Exit[/bold red]")
         
-        choice = Prompt.ask("Choose an option", choices=["1", "2", "3", "4"], default="1")
+        choice = Prompt.ask("Choose an option", choices=["1", "2", "3", "4", "5"], default="1")
         
         if choice == "1":
             interactive_search()
         elif choice == "2":
-            interactive_list()
+            interactive_curated()
         elif choice == "3":
+            interactive_list()
+        elif choice == "4":
             update()
             Prompt.ask("Press Enter to continue")
-        elif choice == "4":
+        elif choice == "5":
             console.print("[bold]Goodbye![/bold]")
             break
 
