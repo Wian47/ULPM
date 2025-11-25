@@ -239,14 +239,6 @@ class DnfManager(PackageManager):
         return results
 
     def list_installed(self) -> List[Dict[str, str]]:
-        # dnf list installed is HUGE. We probably shouldn't list ALL dnf packages by default in the "list" view 
-        # unless requested, or maybe just user-installed ones.
-        # `dnf history userinstalled` is better but might not exist on all versions.
-        # Let's stick to a limit or just not implement list_installed for DNF to avoid cluttering the UI 
-        # with 2000 system libs.
-        # Alternatively, return an empty list or only top-level apps.
-        # For this "All in one" tool, maybe we skip DNF list for now to keep it usable, 
-        # or we try `dnf list installed userinstalled` if supported.
         return [] 
 
     def install(self, app_id: str):
@@ -264,8 +256,155 @@ class DnfManager(PackageManager):
     def info(self, app_id: str) -> str:
         return self._run(["info", app_id])
 
+class AptManager(PackageManager):
+    name = "APT"
+    color = "red"
+
+    def __init__(self):
+        self.available = shutil.which("apt") is not None
+
+    def _run(self, args: List[str], capture: bool = True) -> str:
+        if not self.available:
+            return ""
+        cmd = ["apt"] + args
+        try:
+            if capture:
+                result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+                return result.stdout
+            else:
+                subprocess.run(cmd, check=False)
+                return ""
+        except Exception:
+            return ""
+
+    def search(self, query: str) -> List[Dict[str, str]]:
+        if not self.available: return []
+        # apt search <query>
+        output = self._run(["search", query])
+        results = []
+        if output:
+            lines = output.strip().split('\n')
+            for line in lines:
+                if "/" in line and "now" not in line: # Basic filtering for package lines
+                     parts = line.split('/')
+                     if len(parts) > 1:
+                         name = parts[0].strip()
+                         # Description is usually on the next line or after ' - '
+                         # apt search output is tricky to parse perfectly without -F or similar, 
+                         # but let's try a simple split if it exists on same line
+                         description = "System Package"
+                         if " - " in line:
+                             description = line.split(" - ", 1)[1].strip()
+                         
+                         results.append({
+                            "name": name,
+                            "description": description,
+                            "id": name,
+                            "version": "repo",
+                            "source": "apt"
+                         })
+        return results
+
+    def list_installed(self) -> List[Dict[str, str]]:
+        # apt list --installed is also huge
+        return []
+
+    def install(self, app_id: str):
+        console.print("[yellow]Note: APT installation requires sudo.[/yellow]")
+        subprocess.run(["sudo", "apt", "install", app_id], check=False)
+
+    def remove(self, app_id: str):
+        console.print("[yellow]Note: APT removal requires sudo.[/yellow]")
+        subprocess.run(["sudo", "apt", "remove", app_id], check=False)
+
+    def update(self):
+        console.print("[yellow]Note: APT update requires sudo.[/yellow]")
+        subprocess.run(["sudo", "apt", "update"], check=False)
+        subprocess.run(["sudo", "apt", "upgrade"], check=False)
+
+    def info(self, app_id: str) -> str:
+        return self._run(["show", app_id])
+
+class PacmanManager(PackageManager):
+    name = "Pacman"
+    color = "yellow"
+
+    def __init__(self):
+        self.available = shutil.which("pacman") is not None
+
+    def _run(self, args: List[str], capture: bool = True) -> str:
+        if not self.available:
+            return ""
+        cmd = ["pacman"] + args
+        try:
+            if capture:
+                result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+                return result.stdout
+            else:
+                subprocess.run(cmd, check=False)
+                return ""
+        except Exception:
+            return ""
+
+    def search(self, query: str) -> List[Dict[str, str]]:
+        if not self.available: return []
+        # pacman -Ss <query>
+        output = self._run(["-Ss", query])
+        results = []
+        if output:
+            lines = output.strip().split('\n')
+            # Output format:
+            # repo/name version [installed]
+            #     Description
+            current_pkg = {}
+            for line in lines:
+                if not line.startswith("    "):
+                    parts = line.split(' ')
+                    if len(parts) >= 2:
+                        name_part = parts[0] # repo/name
+                        name = name_part.split('/')[1] if '/' in name_part else name_part
+                        version = parts[1]
+                        current_pkg = {
+                            "name": name,
+                            "id": name,
+                            "version": version,
+                            "source": "arch"
+                        }
+                else:
+                    if current_pkg:
+                        current_pkg["description"] = line.strip()
+                        results.append(current_pkg)
+                        current_pkg = {}
+        return results
+
+    def list_installed(self) -> List[Dict[str, str]]:
+        return []
+
+    def install(self, app_id: str):
+        console.print("[yellow]Note: Pacman installation requires sudo.[/yellow]")
+        subprocess.run(["sudo", "pacman", "-S", app_id], check=False)
+
+    def remove(self, app_id: str):
+        console.print("[yellow]Note: Pacman removal requires sudo.[/yellow]")
+        subprocess.run(["sudo", "pacman", "-R", app_id], check=False)
+
+    def update(self):
+        console.print("[yellow]Note: Pacman update requires sudo.[/yellow]")
+        subprocess.run(["sudo", "pacman", "-Syu"], check=False)
+
+    def info(self, app_id: str) -> str:
+        return self._run(["-Si", app_id])
+
 # Initialize Managers
-managers = [FlatpakManager(), SnapManager(), DnfManager()]
+managers = [FlatpakManager(), SnapManager()]
+
+# Detect System Package Manager
+if shutil.which("dnf"):
+    managers.append(DnfManager())
+elif shutil.which("apt"):
+    managers.append(AptManager())
+elif shutil.which("pacman"):
+    managers.append(PacmanManager())
 
 # --- Interactive Functions ---
 
@@ -448,7 +587,7 @@ def search(query: str):
     console.print(table)
 
 @app.command()
-def install(app_id: str, manager: str = typer.Option("flatpak", help="Manager to use: flatpak, snap, or dnf")):
+def install(app_id: str, manager: str = typer.Option("flatpak", help="Manager to use: flatpak, snap, dnf, apt, or pacman")):
     """Install an application."""
     mgr = next((m for m in managers if m.name.lower() == manager.lower()), None)
     if not mgr:
@@ -499,7 +638,7 @@ def list_apps():
     console.print(table)
 
 @app.command()
-def remove(app_id: str, manager: str = typer.Option("flatpak", help="Manager to use: flatpak, snap, or dnf")):
+def remove(app_id: str, manager: str = typer.Option("flatpak", help="Manager to use: flatpak, snap, dnf, apt, or pacman")):
     """Uninstall an application."""
     mgr = next((m for m in managers if m.name.lower() == manager.lower()), None)
     if not mgr:
@@ -512,7 +651,7 @@ def remove(app_id: str, manager: str = typer.Option("flatpak", help="Manager to 
         console.print("[yellow]Operation cancelled.[/yellow]")
 
 @app.command()
-def info(app_id: str, manager: str = typer.Option("flatpak", help="Manager to use: flatpak, snap, or dnf")):
+def info(app_id: str, manager: str = typer.Option("flatpak", help="Manager to use: flatpak, snap, dnf, apt, or pacman")):
     """Show details about an application."""
     mgr = next((m for m in managers if m.name.lower() == manager.lower()), None)
     if not mgr:
