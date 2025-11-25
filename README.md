@@ -1,4 +1,4 @@
-# Universal Linux Package Manager CLI
+# Universal Linux Package Manager(ULPM)
 
 A beautiful, all-in-one CLI tool for managing **Flatpak**, **Snap**, and **System Packages** (DNF, APT, Pacman) on Linux.
 
