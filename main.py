@@ -8,7 +8,7 @@ from rich.panel import Panel
 from rich.prompt import Prompt, IntPrompt, Confirm
 from typing import Optional, List, Dict
 
-app = typer.Typer(help="A beautiful CLI for managing Flatpak, Snap, and DNF apps on Fedora.")
+app = typer.Typer(help="Universal Linux Package Manager (ULPM) - A beautiful CLI for managing Flatpak, Snap, and System Packages.")
 console = Console()
 
 # --- Package Manager Abstractions ---
@@ -524,7 +524,7 @@ def interactive_list():
 def main_menu():
     while True:
         console.clear()
-        console.print(Panel("[bold magenta]Universal Linux Package Manager[/bold magenta]", subtitle="Flatpak, Snap & DNF"))
+        console.print(Panel("[bold magenta]Universal Linux Package Manager (ULPM)[/bold magenta]", subtitle="Flatpak, Snap & System Packages"))
         console.print("1. [bold cyan]Search & Install[/bold cyan]")
         console.print("2. [bold green]List & Manage Installed[/bold green]")
         console.print("3. [bold blue]Update All[/bold blue]")
@@ -546,7 +546,8 @@ def main_menu():
 @app.callback(invoke_without_command=True)
 def main(ctx: typer.Context):
     """
-    A beautiful CLI for managing Flatpak, Snap, and DNF apps.
+    Universal Linux Package Manager (ULPM)
+    A beautiful CLI for managing Flatpak, Snap, and System Packages.
     If no command is given, launches interactive mode.
     """
     if ctx.invoked_subcommand is None:
