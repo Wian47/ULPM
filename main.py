@@ -7,6 +7,7 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.prompt import Prompt, IntPrompt, Confirm
 from typing import Optional, List, Dict
+import glob
 
 app = typer.Typer(help="Universal Linux Package Manager (ULPM) - A beautiful CLI for managing Flatpak, Snap, and System Packages.")
 console = Console()
@@ -239,7 +240,43 @@ class DnfManager(PackageManager):
         return results
 
     def list_installed(self) -> List[Dict[str, str]]:
-        return [] 
+        # Filter for apps with .desktop files in /usr/share/applications
+        desktop_files = glob.glob("/usr/share/applications/*.desktop")
+        if not desktop_files:
+            return []
+
+        # rpm -qf --qf "%{NAME}\t%{VERSION}\t%{SUMMARY}\n" <files>
+        # We'll process in chunks to avoid command line length limits if necessary, 
+        # but for typical desktop counts (~200-500), it should be fine.
+        cmd = ["rpm", "-qf", "--qf", "%{NAME}\t%{VERSION}\t%{SUMMARY}\n"] + desktop_files
+        
+        try:
+            # Suppress stderr because some .desktop files might not belong to any package
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            output = result.stdout
+        except Exception:
+            return []
+
+        results = []
+        seen_ids = set()
+        
+        if output:
+            for line in output.strip().split('\n'):
+                parts = line.split('\t')
+                if len(parts) >= 3:
+                    name = parts[0]
+                    if name in seen_ids:
+                        continue
+                    seen_ids.add(name)
+                    
+                    results.append({
+                        "name": name,
+                        "id": name,
+                        "version": parts[1],
+                        "description": parts[2],
+                        "source": "dnf"
+                    })
+        return results 
 
     def install(self, app_id: str):
         console.print("[yellow]Note: DNF installation requires sudo.[/yellow]")
@@ -306,8 +343,52 @@ class AptManager(PackageManager):
         return results
 
     def list_installed(self) -> List[Dict[str, str]]:
-        # apt list --installed is also huge
-        return []
+        desktop_files = glob.glob("/usr/share/applications/*.desktop")
+        if not desktop_files: return []
+
+        # 1. Get packages owning these files
+        # dpkg -S <files>
+        cmd = ["dpkg", "-S"] + desktop_files
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            output = result.stdout
+        except Exception:
+            return []
+            
+        packages = set()
+        if output:
+            for line in output.strip().split('\n'):
+                # Output: package: /path/to/file
+                if ": " in line:
+                    pkg = line.split(": ")[0]
+                    # Handle multi-arch (e.g., package:amd64)
+                    pkg = pkg.split(':')[0] 
+                    packages.add(pkg)
+        
+        if not packages:
+            return []
+
+        # 2. Get details for these packages
+        # dpkg-query -W -f='${binary:Package}\t${Version}\n' <packages>
+        cmd_details = ["dpkg-query", "-W", "-f=${binary:Package}\t${Version}\n"] + list(packages)
+        try:
+            result = subprocess.run(cmd_details, capture_output=True, text=True, check=False)
+            output = result.stdout
+        except Exception:
+            return []
+
+        results = []
+        if output:
+            for line in output.strip().split('\n'):
+                parts = line.split('\t')
+                if len(parts) >= 2:
+                    results.append({
+                        "name": parts[0],
+                        "id": parts[0],
+                        "version": parts[1],
+                        "source": "apt"
+                    })
+        return results
 
     def install(self, app_id: str):
         console.print("[yellow]Note: APT installation requires sudo.[/yellow]")
@@ -378,7 +459,45 @@ class PacmanManager(PackageManager):
         return results
 
     def list_installed(self) -> List[Dict[str, str]]:
-        return []
+        if not self.available: return []
+        
+        desktop_files = glob.glob("/usr/share/applications/*.desktop")
+        if not desktop_files: return []
+
+        # pacman -Qo <files>
+        cmd = ["pacman", "-Qo"] + desktop_files
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            output = result.stdout
+        except Exception:
+            return []
+            
+        results = []
+        seen_ids = set()
+        
+        if output:
+            lines = output.strip().split('\n')
+            for line in lines:
+                # Output: /path/to/file is owned by package version
+                if " is owned by " in line:
+                    parts = line.split(" is owned by ")
+                    if len(parts) == 2:
+                        pkg_info = parts[1].split()
+                        if len(pkg_info) >= 2:
+                            name = pkg_info[0]
+                            version = pkg_info[1]
+                            
+                            if name in seen_ids:
+                                continue
+                            seen_ids.add(name)
+                            
+                            results.append({
+                                "name": name,
+                                "id": name,
+                                "version": version,
+                                "source": "pacman"
+                            })
+        return results
 
     def install(self, app_id: str):
         console.print("[yellow]Note: Pacman installation requires sudo.[/yellow]")
