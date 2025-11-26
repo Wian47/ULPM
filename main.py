@@ -8,6 +8,9 @@ from rich.panel import Panel
 from rich.prompt import Prompt, IntPrompt, Confirm
 from typing import Optional, List, Dict
 import glob
+import json
+import os
+from tweaks import SystemOptimizer
 
 app = typer.Typer(help="Universal Linux Package Manager (ULPM) - A beautiful CLI for managing Flatpak, Snap, and System Packages.")
 console = Console()
@@ -52,7 +55,15 @@ class FlatpakManager(PackageManager):
         except subprocess.CalledProcessError:
             return ""
 
+    def ensure_flathub(self):
+        # Check if flathub exists
+        output = self._run(["remote-list"], capture=True)
+        if "flathub" not in output:
+            console.print("[blue]Adding Flathub remote...[/blue]")
+            self._run(["remote-add", "--if-not-exists", "flathub", "https://dl.flathub.org/repo/flathub.flatpakrepo"], capture=False)
+
     def search(self, query: str) -> List[Dict[str, str]]:
+        self.ensure_flathub()
         output = self._run(["search", query, "--columns=name,description,application,version,remotes"])
         results = []
         if output:
@@ -83,9 +94,21 @@ class FlatpakManager(PackageManager):
                     })
         return results
 
-    def install(self, app_id: str):
+    def install(self, app_id: str) -> bool:
+        self.ensure_flathub()
         # Interactive
-        self._run(["install", app_id], capture=False)
+        try:
+            # We use check=True in _run, so it will raise CalledProcessError on failure
+            # Explicitly use flathub remote to avoid "No remote refs found" if multiple remotes exist or if it's not searching correctly
+            self._run(["install", "-y", "flathub", app_id], capture=False)
+            return True
+        except Exception:
+            # Fallback: try without remote specifier if flathub fails (unlikely but safe)
+            try:
+                self._run(["install", "-y", app_id], capture=False)
+                return True
+            except Exception:
+                return False
 
     def remove(self, app_id: str):
         # Interactive
@@ -165,10 +188,14 @@ class SnapManager(PackageManager):
                         })
         return results
 
-    def install(self, app_id: str):
+    def install(self, app_id: str) -> bool:
         # Snaps often need sudo. subprocess.run without capture allows sudo prompt.
         console.print("[yellow]Note: Snap installation may require sudo password.[/yellow]")
-        self._run(["install", app_id], capture=False)
+        try:
+            self._run(["install", app_id], capture=False)
+            return True
+        except Exception:
+            return False
 
     def remove(self, app_id: str):
         console.print("[yellow]Note: Snap removal may require sudo password.[/yellow]")
@@ -278,9 +305,13 @@ class DnfManager(PackageManager):
                     })
         return results 
 
-    def install(self, app_id: str):
+    def install(self, app_id: str) -> bool:
         console.print("[yellow]Note: DNF installation requires sudo.[/yellow]")
-        subprocess.run(["sudo", "dnf", "install", app_id], check=False)
+        try:
+            subprocess.run(["sudo", "dnf", "install", "-y", app_id], check=True)
+            return True
+        except Exception:
+            return False
 
     def remove(self, app_id: str):
         console.print("[yellow]Note: DNF removal requires sudo.[/yellow]")
@@ -390,9 +421,13 @@ class AptManager(PackageManager):
                     })
         return results
 
-    def install(self, app_id: str):
+    def install(self, app_id: str) -> bool:
         console.print("[yellow]Note: APT installation requires sudo.[/yellow]")
-        subprocess.run(["sudo", "apt", "install", app_id], check=False)
+        try:
+            subprocess.run(["sudo", "apt", "install", "-y", app_id], check=True)
+            return True
+        except Exception:
+            return False
 
     def remove(self, app_id: str):
         console.print("[yellow]Note: APT removal requires sudo.[/yellow]")
@@ -499,9 +534,13 @@ class PacmanManager(PackageManager):
                             })
         return results
 
-    def install(self, app_id: str):
+    def install(self, app_id: str) -> bool:
         console.print("[yellow]Note: Pacman installation requires sudo.[/yellow]")
-        subprocess.run(["sudo", "pacman", "-S", app_id], check=False)
+        try:
+            subprocess.run(["sudo", "pacman", "-S", "--noconfirm", app_id], check=True)
+            return True
+        except Exception:
+            return False
 
     def remove(self, app_id: str):
         console.print("[yellow]Note: Pacman removal requires sudo.[/yellow]")
@@ -527,33 +566,16 @@ elif shutil.which("pacman"):
 
 # --- Curated Apps Data ---
 
-CURATED_APPS = {
-    "Browsers": [
-        {"name": "Google Chrome", "flatpak": "com.google.Chrome", "snap": "google-chrome", "desc": "Web Browser"},
-        {"name": "Firefox", "flatpak": "org.mozilla.firefox", "snap": "firefox", "desc": "Web Browser"},
-        {"name": "Brave", "flatpak": "com.brave.Browser", "snap": "brave", "desc": "Privacy Browser"},
-    ],
-    "Development": [
-        {"name": "VS Code", "flatpak": "com.visualstudio.code", "snap": "code", "desc": "Code Editor"},
-        {"name": "PyCharm Community", "flatpak": "com.jetbrains.PyCharm-Community", "snap": "pycharm-community", "desc": "Python IDE"},
-        {"name": "Sublime Text", "flatpak": "com.sublimetext.three", "snap": "sublime-text", "desc": "Text Editor"},
-    ],
-    "Communication": [
-        {"name": "Discord", "flatpak": "com.discordapp.Discord", "snap": "discord", "desc": "Chat for Gamers"},
-        {"name": "Slack", "flatpak": "com.slack.Slack", "snap": "slack", "desc": "Team Communication"},
-        {"name": "Zoom", "flatpak": "us.zoom.Zoom", "snap": "zoom-client", "desc": "Video Conferencing"},
-    ],
-    "Multimedia": [
-        {"name": "VLC", "flatpak": "org.videolan.VLC", "snap": "vlc", "desc": "Media Player"},
-        {"name": "Spotify", "flatpak": "com.spotify.Client", "snap": "spotify", "desc": "Music Streaming"},
-        {"name": "OBS Studio", "flatpak": "com.obsproject.Studio", "snap": "obs-studio", "desc": "Streaming Software"},
-    ],
-    "Tools": [
-        {"name": "GIMP", "flatpak": "org.gimp.GIMP", "snap": "gimp", "desc": "Image Editor"},
-        {"name": "Inkscape", "flatpak": "org.inkscape.Inkscape", "snap": "inkscape", "desc": "Vector Graphics"},
-        {"name": "Blender", "flatpak": "org.blender.Blender", "snap": "blender", "desc": "3D Creation Suite"},
-    ]
-}
+
+
+def load_curated_apps():
+    apps_path = os.path.join(os.path.dirname(__file__), "apps.json")
+    if os.path.exists(apps_path):
+        with open(apps_path, "r") as f:
+            return json.load(f)
+    return {}
+
+CURATED_APPS = load_curated_apps()
 
 # --- Interactive Functions ---
 
@@ -680,15 +702,16 @@ def interactive_curated():
         # Flatten list for display
         display_list = []
         
-        current_idx = 1
-        table = Table(show_header=True, header_style="bold magenta")
+        table = Table(show_header=True, header_style="bold magenta", box=None)
         table.add_column("Sel", style="bold yellow", width=4)
         table.add_column("#", style="dim", width=4)
         table.add_column("Category", style="cyan")
         table.add_column("Name", style="bold white")
         table.add_column("Description")
         
+        current_idx = 1
         for cat, apps in CURATED_APPS.items():
+            table.add_section()
             for i, app_data in enumerate(apps):
                 is_selected = (cat, i) in selected_apps
                 sel_mark = "[green][x][/green]" if is_selected else "[dim][ ][/dim]"
@@ -696,7 +719,7 @@ def interactive_curated():
                 table.add_row(
                     sel_mark,
                     str(current_idx),
-                    cat if i == 0 else "", # Only show category once
+                    cat if i == 0 else "", 
                     app_data['name'],
                     app_data['desc']
                 )
@@ -705,7 +728,14 @@ def interactive_curated():
         
         console.print(table)
         
-        choice = Prompt.ask("Enter # to toggle, 'i' to install selected, or 'b' to back")
+        console.print("\n[bold]Controls:[/bold]")
+        console.print("  [cyan]<number>[/cyan]   : Toggle specific app (e.g., '1')")
+        console.print("  [cyan]<range>[/cyan]    : Toggle range (e.g., '1-5')")
+        console.print("  [cyan]<list>[/cyan]     : Toggle multiple (e.g., '1,3,5-7')")
+        console.print("  [green]i[/green]          : Install selected")
+        console.print("  [red]b[/red]          : Back")
+        
+        choice = Prompt.ask("Selection")
         
         if choice.lower() == 'b':
             break
@@ -723,44 +753,163 @@ def interactive_curated():
                 app_data = CURATED_APPS[cat][i]
                 name = app_data['name']
                 
-                # Determine manager priority: Flatpak > Snap > System (Not implemented in data yet)
-                # For now, we use Flatpak if available, else Snap.
-                
                 installed = False
                 
                 # Try Flatpak
                 flatpak_mgr = next((m for m in managers if isinstance(m, FlatpakManager)), None)
                 if flatpak_mgr and 'flatpak' in app_data:
                     console.print(f"Installing [cyan]{name}[/cyan] via Flatpak...")
-                    flatpak_mgr.install(app_data['flatpak'])
-                    installed = True
+                    if flatpak_mgr.install(app_data['flatpak']):
+                        installed = True
                 
                 # Try Snap if not installed
                 if not installed:
                     snap_mgr = next((m for m in managers if isinstance(m, SnapManager)), None)
                     if snap_mgr and 'snap' in app_data:
                         console.print(f"Installing [cyan]{name}[/cyan] via Snap...")
-                        snap_mgr.install(app_data['snap'])
-                        installed = True
+                        if snap_mgr.install(app_data['snap']):
+                            installed = True
                 
                 if not installed:
-                    console.print(f"[red]Could not find a suitable manager for {name}[/red]")
+                    console.print(f"[red]Could not install {name}. Check logs or try another manager.[/red]")
             
             console.print("\n[bold green]Batch installation complete![/bold green]")
             Prompt.ask("Press Enter to continue")
             selected_apps.clear()
             
-        elif choice.isdigit():
-            idx = int(choice) - 1
-            if 0 <= idx < len(display_list):
-                target = display_list[idx]
-                if target in selected_apps:
-                    selected_apps.remove(target)
-                else:
-                    selected_apps.add(target)
-            else:
-                console.print("[red]Invalid selection.[/red]")
-                Prompt.ask("Press Enter to continue")
+        else:
+            # Parse selection
+            parts = choice.split(',')
+            for part in parts:
+                part = part.strip()
+                if '-' in part:
+                    try:
+                        start, end = map(int, part.split('-'))
+                        for idx in range(start, end + 1):
+                            real_idx = idx - 1
+                            if 0 <= real_idx < len(display_list):
+                                target = display_list[real_idx]
+                                if target in selected_apps:
+                                    selected_apps.remove(target)
+                                else:
+                                    selected_apps.add(target)
+                    except ValueError:
+                        pass
+                elif part.isdigit():
+                    idx = int(part) - 1
+                    if 0 <= idx < len(display_list):
+                        target = display_list[idx]
+                        if target in selected_apps:
+                            selected_apps.remove(target)
+                        else:
+                            selected_apps.add(target)
+
+def interactive_tweaks():
+    optimizer = SystemOptimizer(console)
+    while True:
+        console.clear()
+        console.print(Panel("[bold white]Advanced System Optimization[/bold white]", subtitle="Performance Tweaks"))
+        
+        console.print("1. [cyan]Optimize Swappiness[/cyan] (Better desktop responsiveness)")
+        console.print("2. [cyan]Optimize Network (BBR)[/cyan] (Faster internet speeds)")
+        console.print("3. [cyan]Optimize Filesystem[/cyan] (TRIM & Inotify)")
+        console.print("4. [cyan]Optimize Gaming[/cyan] (max_map_count for Steam)")
+        console.print("5. [cyan]Optimize VFS Cache[/cyan] (System responsiveness)")
+        console.print("6. [bold red]Revert All Optimizations[/bold red]")
+        console.print("7. [bold]Back[/bold]")
+        
+        choice = Prompt.ask("Choose an option", choices=["1", "2", "3", "4", "5", "6", "7"])
+        
+        if choice == "1":
+            optimizer.optimize_swappiness()
+        elif choice == "2":
+            optimizer.optimize_network()
+        elif choice == "3":
+            optimizer.optimize_filesystem()
+        elif choice == "4":
+            optimizer.optimize_gaming()
+        elif choice == "5":
+            optimizer.optimize_vfs()
+        elif choice == "6":
+            if Confirm.ask("[bold red]Are you sure you want to revert all optimizations?[/bold red]"):
+                optimizer.revert_optimizations()
+        elif choice == "7":
+            break
+        
+        Prompt.ask("Press Enter to continue")
+
+def interactive_deploy():
+    optimizer = SystemOptimizer(console)
+    console.clear()
+    console.print(Panel("[bold green]One-Click System Setup[/bold green]", subtitle="Update, Optimize & Install Essentials"))
+    
+    console.print("This will perform the following actions:")
+    console.print("1. [cyan]Update System Packages[/cyan]")
+    console.print("2. [cyan]Apply Performance Tweaks[/cyan] (Swappiness)")
+    console.print("3. [cyan]Install Essential Apps[/cyan]:")
+    console.print("   - Google Chrome (Browser)")
+    console.print("   - VLC (Media)")
+    console.print("   - Discord (Communication)")
+    console.print("   - VS Code (Development)")
+    console.print("   - Flameshot (Tools)")
+    
+    if not Confirm.ask("\n[bold yellow]Are you ready to start?[/bold yellow]"):
+        return
+
+    # 1. System Update
+    console.print("\n[bold blue]Step 1: Updating System...[/bold blue]")
+    optimizer.update_system()
+    
+    # 2. Optimization
+    console.print("\n[bold blue]Step 2: Optimizing Performance...[/bold blue]")
+    optimizer.optimize_swappiness()
+    
+    # 3. Install Essentials
+    console.print("\n[bold blue]Step 3: Installing Essentials...[/bold blue]")
+    essentials = [
+        ("Browsers", "Google Chrome"),
+        ("Multimedia", "VLC"),
+        ("Communication", "Discord"),
+        ("Development", "VS Code"),
+        ("Tools", "Flameshot")
+    ]
+    
+    for cat, app_name in essentials:
+        # Find app data
+        found = False
+        if cat in CURATED_APPS:
+            for app in CURATED_APPS[cat]:
+                if app['name'] == app_name:
+                    # Install logic (similar to interactive_curated)
+                    installed = False
+                    
+                    # Try Flatpak
+                    flatpak_mgr = next((m for m in managers if isinstance(m, FlatpakManager)), None)
+                    if flatpak_mgr and 'flatpak' in app:
+                        console.print(f"Installing [cyan]{app_name}[/cyan] via Flatpak...")
+                        if flatpak_mgr.install(app['flatpak']):
+                            installed = True
+                    
+                    # Try Snap
+                    if not installed:
+                        snap_mgr = next((m for m in managers if isinstance(m, SnapManager)), None)
+                        if snap_mgr and 'snap' in app:
+                            console.print(f"Installing [cyan]{app_name}[/cyan] via Snap...")
+                            if snap_mgr.install(app['snap']):
+                                installed = True
+                    
+                    if installed:
+                        console.print(f"[green]✓ {app_name} installed.[/green]")
+                    else:
+                        console.print(f"[red]✗ Failed to install {app_name}.[/red]")
+                    found = True
+                    break
+        
+        if not found:
+            console.print(f"[yellow]Could not find data for {app_name}[/yellow]")
+
+    console.print("\n[bold green]✨ System Setup Complete! ✨[/bold green]")
+    Prompt.ask("Press Enter to return to menu")
 
 def main_menu():
     while True:
@@ -770,9 +919,11 @@ def main_menu():
         console.print("2. [bold green]Curated Apps[/bold green]")
         console.print("3. [bold yellow]List & Manage Installed[/bold yellow]")
         console.print("4. [bold blue]Update All[/bold blue]")
-        console.print("5. [bold red]Exit[/bold red]")
+        console.print("5. [bold white]Advanced Optimization[/bold white]")
+        console.print("6. [bold green]One-Click Setup[/bold green] [bold red](NEW!)[/bold red]")
+        console.print("7. [bold red]Exit[/bold red]")
         
-        choice = Prompt.ask("Choose an option", choices=["1", "2", "3", "4", "5"], default="1")
+        choice = Prompt.ask("Choose an option", choices=["1", "2", "3", "4", "5", "6", "7"], default="1")
         
         if choice == "1":
             interactive_search()
@@ -784,6 +935,10 @@ def main_menu():
             update()
             Prompt.ask("Press Enter to continue")
         elif choice == "5":
+            interactive_tweaks()
+        elif choice == "6":
+            interactive_deploy()
+        elif choice == "7":
             console.print("[bold]Goodbye![/bold]")
             break
 

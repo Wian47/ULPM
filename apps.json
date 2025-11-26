@@ -1,0 +1,249 @@
+{
+  "Browsers": [
+    {
+      "name": "Google Chrome",
+      "flatpak": "com.google.Chrome",
+      "snap": "google-chrome",
+      "desc": "Web Browser"
+    },
+    {
+      "name": "Firefox",
+      "flatpak": "org.mozilla.firefox",
+      "snap": "firefox",
+      "desc": "Web Browser"
+    },
+    {
+      "name": "Brave",
+      "flatpak": "com.brave.Browser",
+      "snap": "brave",
+      "desc": "Privacy Browser"
+    },
+    {
+      "name": "Microsoft Edge",
+      "flatpak": "com.microsoft.Edge",
+      "snap": "edge",
+      "desc": "Web Browser"
+    },
+    {
+      "name": "Vivaldi",
+      "flatpak": "com.vivaldi.Vivaldi",
+      "snap": "vivaldi",
+      "desc": "Customizable Browser"
+    }
+  ],
+  "Development": [
+    {
+      "name": "VS Code",
+      "flatpak": "com.visualstudio.code",
+      "snap": "code",
+      "desc": "Code Editor"
+    },
+    {
+      "name": "PyCharm Community",
+      "flatpak": "com.jetbrains.PyCharm-Community",
+      "snap": "pycharm-community",
+      "desc": "Python IDE"
+    },
+    {
+      "name": "Sublime Text",
+      "flatpak": "com.sublimetext.three",
+      "snap": "sublime-text",
+      "desc": "Text Editor"
+    },
+    {
+      "name": "IntelliJ IDEA Community",
+      "flatpak": "com.jetbrains.IntelliJ-IDEA-Community",
+      "snap": "intellij-idea-community",
+      "desc": "Java IDE"
+    },
+    {
+      "name": "Postman",
+      "flatpak": "com.getpostman.Postman",
+      "snap": "postman",
+      "desc": "API Platform"
+    },
+    {
+      "name": "Docker Desktop",
+      "snap": "docker",
+      "desc": "Container Platform"
+    },
+    {
+      "name": "Godot",
+      "flatpak": "org.godotengine.Godot",
+      "snap": "godot",
+      "desc": "Game Engine"
+    }
+  ],
+  "Gaming": [
+    {
+      "name": "Steam",
+      "flatpak": "com.valvesoftware.Steam",
+      "snap": "steam",
+      "desc": "Game Distribution Service"
+    },
+    {
+      "name": "Lutris",
+      "flatpak": "net.lutris.Lutris",
+      "snap": "lutris",
+      "desc": "Open Gaming Platform"
+    },
+    {
+      "name": "Heroic Games Launcher",
+      "flatpak": "com.heroicgameslauncher.hgl",
+      "snap": "heroic",
+      "desc": "Epic/GOG Launcher"
+    },
+    {
+      "name": "Minecraft",
+      "flatpak": "com.mojang.Minecraft",
+      "snap": "mc-installer",
+      "desc": "Sandbox Game"
+    },
+    {
+      "name": "Discord",
+      "flatpak": "com.discordapp.Discord",
+      "snap": "discord",
+      "desc": "Chat for Gamers"
+    }
+  ],
+  "Multimedia": [
+    {
+      "name": "VLC",
+      "flatpak": "org.videolan.VLC",
+      "snap": "vlc",
+      "desc": "Media Player"
+    },
+    {
+      "name": "Spotify",
+      "flatpak": "com.spotify.Client",
+      "snap": "spotify",
+      "desc": "Music Streaming"
+    },
+    {
+      "name": "OBS Studio",
+      "flatpak": "com.obsproject.Studio",
+      "snap": "obs-studio",
+      "desc": "Streaming Software"
+    },
+    {
+      "name": "Audacity",
+      "flatpak": "org.audacityteam.Audacity",
+      "snap": "audacity",
+      "desc": "Audio Editor"
+    },
+    {
+      "name": "Kdenlive",
+      "flatpak": "org.kde.kdenlive",
+      "snap": "kdenlive",
+      "desc": "Video Editor"
+    },
+    {
+      "name": "HandBrake",
+      "flatpak": "fr.handbrake.ghb",
+      "snap": "handbrake-jz",
+      "desc": "Video Transcoder"
+    }
+  ],
+  "Tools": [
+    {
+      "name": "GIMP",
+      "flatpak": "org.gimp.GIMP",
+      "snap": "gimp",
+      "desc": "Image Editor"
+    },
+    {
+      "name": "Inkscape",
+      "flatpak": "org.inkscape.Inkscape",
+      "snap": "inkscape",
+      "desc": "Vector Graphics"
+    },
+    {
+      "name": "Blender",
+      "flatpak": "org.blender.Blender",
+      "snap": "blender",
+      "desc": "3D Creation Suite"
+    },
+    {
+      "name": "Krita",
+      "flatpak": "org.kde.krita",
+      "snap": "krita",
+      "desc": "Digital Painting"
+    },
+    {
+      "name": "Flameshot",
+      "flatpak": "org.flameshot.Flameshot",
+      "snap": "flameshot",
+      "desc": "Screenshot Tool"
+    }
+  ],
+  "Office": [
+    {
+      "name": "LibreOffice",
+      "flatpak": "org.libreoffice.LibreOffice",
+      "snap": "libreoffice",
+      "desc": "Office Suite"
+    },
+    {
+      "name": "Obsidian",
+      "flatpak": "md.obsidian.Obsidian",
+      "snap": "obsidian",
+      "desc": "Knowledge Base"
+    },
+    {
+      "name": "Notion",
+      "flatpak": "notion-snap-reborn",
+      "snap": "notion-snap-reborn",
+      "desc": "Productivity Tool (Unofficial)"
+    },
+    {
+      "name": "Thunderbird",
+      "flatpak": "org.mozilla.Thunderbird",
+      "snap": "thunderbird",
+      "desc": "Email Client"
+    },
+    {
+      "name": "Zoom",
+      "flatpak": "us.zoom.Zoom",
+      "snap": "zoom-client",
+      "desc": "Video Conferencing"
+    },
+    {
+      "name": "Slack",
+      "flatpak": "com.slack.Slack",
+      "snap": "slack",
+      "desc": "Team Communication"
+    },
+    {
+      "name": "Telegram",
+      "flatpak": "org.telegram.desktop",
+      "snap": "telegram-desktop",
+      "desc": "Messaging App"
+    }
+  ],
+  "System": [
+    {
+      "name": "Bitwarden",
+      "flatpak": "com.bitwarden.desktop",
+      "snap": "bitwarden",
+      "desc": "Password Manager"
+    },
+    {
+      "name": "ProtonVPN",
+      "flatpak": "com.protonvpn.www",
+      "snap": "protonvpn",
+      "desc": "VPN Client"
+    },
+    {
+      "name": "BleachBit",
+      "flatpak": "org.bleachbit.BleachBit",
+      "snap": "bleachbit",
+      "desc": "System Cleaner"
+    },
+    {
+      "name": "GParted",
+      "flatpak": "org.gnome.GParted",
+      "snap": "gparted",
+      "desc": "Partition Editor"
+    }
+  ]
+}
