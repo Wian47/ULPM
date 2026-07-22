@@ -11,9 +11,11 @@ import glob
 import json
 import os
 from tweaks import SystemOptimizer
+from safety import SystemGuard
 
 app = typer.Typer(help="Universal Linux Package Manager (ULPM) - A beautiful CLI for managing Flatpak, Snap, and System Packages.")
 console = Console()
+guard = SystemGuard(console)
 
 # --- Package Manager Abstractions ---
 
@@ -106,32 +108,24 @@ class FlatpakManager(PackageManager):
             console.print("[red]Flatpak isn't installed on this system.[/red]")
             return False
         self.ensure_flathub()
-        try:
-            # _run() swallows CalledProcessError internally (needed for search/list/info,
-            # where a failure should just mean "no output"), so call subprocess directly
-            # here to let install failures actually propagate and be reported.
-            subprocess.run(["flatpak", "install", "-y", "flathub", app_id], check=True)
+        if guard.run(["flatpak", "install", "-y", "flathub", app_id], f"Installing {app_id} (Flatpak)",
+                      reversible=True, reverse_cmd=["flatpak", "uninstall", "-y", app_id]):
             return True
-        except subprocess.CalledProcessError:
-            # Fallback: try without remote specifier if flathub fails (unlikely but safe)
-            try:
-                subprocess.run(["flatpak", "install", "-y", app_id], check=True)
-                return True
-            except subprocess.CalledProcessError:
-                return False
+        # Fallback: try without remote specifier if flathub fails (unlikely but safe)
+        return guard.run(["flatpak", "install", "-y", app_id], f"Installing {app_id} (Flatpak)",
+                          reversible=True, reverse_cmd=["flatpak", "uninstall", "-y", app_id])
 
     def remove(self, app_id: str):
         if not self.available:
             console.print("[red]Flatpak isn't installed on this system.[/red]")
             return
-        # Interactive
-        self._run(["uninstall", app_id], capture=False)
+        guard.run(["flatpak", "uninstall", "-y", app_id], f"Removing {app_id} (Flatpak)")
 
     def update(self):
         if not self.available:
             console.print("[red]Flatpak isn't installed on this system.[/red]")
             return
-        self._run(["update"], capture=False)
+        guard.run(["flatpak", "update", "-y"], "Updating Flatpak apps")
 
     def info(self, app_id: str) -> str:
         return self._run(["info", app_id])
@@ -205,21 +199,17 @@ class SnapManager(PackageManager):
         return results
 
     def install(self, app_id: str) -> bool:
-        # Snaps often need sudo. subprocess.run without capture allows sudo prompt.
         console.print("[yellow]Note: Snap installation may require sudo password.[/yellow]")
-        try:
-            self._run(["install", app_id], capture=False)
-            return True
-        except Exception:
-            return False
+        return guard.run(["sudo", "snap", "install", app_id], f"Installing {app_id} (Snap)",
+                          reversible=True, reverse_cmd=["sudo", "snap", "remove", app_id])
 
     def remove(self, app_id: str):
         console.print("[yellow]Note: Snap removal may require sudo password.[/yellow]")
-        self._run(["remove", app_id], capture=False)
+        guard.run(["sudo", "snap", "remove", app_id], f"Removing {app_id} (Snap)")
 
     def update(self):
         console.print("[yellow]Note: Snap refresh may require sudo password.[/yellow]")
-        self._run(["refresh"], capture=False)
+        guard.run(["sudo", "snap", "refresh"], "Updating Snap apps")
 
     def info(self, app_id: str) -> str:
         return self._run(["info", app_id])
@@ -325,19 +315,16 @@ class DnfManager(PackageManager):
 
     def install(self, app_id: str) -> bool:
         console.print("[yellow]Note: DNF installation requires sudo.[/yellow]")
-        try:
-            subprocess.run(["sudo", "dnf", "install", "-y", app_id], check=True)
-            return True
-        except Exception:
-            return False
+        return guard.run(["sudo", "dnf", "install", "-y", app_id], f"Installing {app_id} (DNF)",
+                          reversible=True, reverse_cmd=["sudo", "dnf", "remove", "-y", app_id])
 
     def remove(self, app_id: str):
         console.print("[yellow]Note: DNF removal requires sudo.[/yellow]")
-        subprocess.run(["sudo", "dnf", "remove", app_id], check=False)
+        guard.run(["sudo", "dnf", "remove", "-y", app_id], f"Removing {app_id} (DNF)")
 
     def update(self):
         console.print("[yellow]Note: DNF update requires sudo.[/yellow]")
-        subprocess.run(["sudo", "dnf", "update"], check=False)
+        guard.run(["sudo", "dnf", "update", "-y"], "Updating DNF packages")
 
     def info(self, app_id: str) -> str:
         return self._run(["info", app_id])
@@ -443,20 +430,17 @@ class AptManager(PackageManager):
 
     def install(self, app_id: str) -> bool:
         console.print("[yellow]Note: APT installation requires sudo.[/yellow]")
-        try:
-            subprocess.run(["sudo", "apt", "install", "-y", app_id], check=True)
-            return True
-        except Exception:
-            return False
+        return guard.run(["sudo", "apt", "install", "-y", app_id], f"Installing {app_id} (APT)",
+                          reversible=True, reverse_cmd=["sudo", "apt", "remove", "-y", app_id])
 
     def remove(self, app_id: str):
         console.print("[yellow]Note: APT removal requires sudo.[/yellow]")
-        subprocess.run(["sudo", "apt", "remove", app_id], check=False)
+        guard.run(["sudo", "apt", "remove", "-y", app_id], f"Removing {app_id} (APT)")
 
     def update(self):
         console.print("[yellow]Note: APT update requires sudo.[/yellow]")
-        subprocess.run(["sudo", "apt", "update"], check=False)
-        subprocess.run(["sudo", "apt", "upgrade"], check=False)
+        guard.run(["sudo", "apt", "update"], "Updating APT package index")
+        guard.run(["sudo", "apt", "upgrade", "-y"], "Upgrading APT packages")
 
     def info(self, app_id: str) -> str:
         return self._run(["show", app_id])
@@ -558,19 +542,16 @@ class PacmanManager(PackageManager):
 
     def install(self, app_id: str) -> bool:
         console.print("[yellow]Note: Pacman installation requires sudo.[/yellow]")
-        try:
-            subprocess.run(["sudo", "pacman", "-S", "--noconfirm", app_id], check=True)
-            return True
-        except Exception:
-            return False
+        return guard.run(["sudo", "pacman", "-S", "--noconfirm", app_id], f"Installing {app_id} (Pacman)",
+                          reversible=True, reverse_cmd=["sudo", "pacman", "-R", "--noconfirm", app_id])
 
     def remove(self, app_id: str):
         console.print("[yellow]Note: Pacman removal requires sudo.[/yellow]")
-        subprocess.run(["sudo", "pacman", "-R", app_id], check=False)
+        guard.run(["sudo", "pacman", "-R", "--noconfirm", app_id], f"Removing {app_id} (Pacman)")
 
     def update(self):
         console.print("[yellow]Note: Pacman update requires sudo.[/yellow]")
-        subprocess.run(["sudo", "pacman", "-Syu"], check=False)
+        guard.run(["sudo", "pacman", "-Syu", "--noconfirm"], "Updating Pacman packages")
 
     def info(self, app_id: str) -> str:
         return self._run(["-Si", app_id])
@@ -658,19 +639,16 @@ class ZypperManager(PackageManager):
 
     def install(self, app_id: str) -> bool:
         console.print("[yellow]Note: Zypper installation requires sudo.[/yellow]")
-        try:
-            subprocess.run(["sudo", "zypper", "--non-interactive", "install", "-y", app_id], check=True)
-            return True
-        except Exception:
-            return False
+        return guard.run(["sudo", "zypper", "--non-interactive", "install", app_id], f"Installing {app_id} (Zypper)",
+                          reversible=True, reverse_cmd=["sudo", "zypper", "--non-interactive", "remove", app_id])
 
     def remove(self, app_id: str):
         console.print("[yellow]Note: Zypper removal requires sudo.[/yellow]")
-        subprocess.run(["sudo", "zypper", "--non-interactive", "remove", app_id], check=False)
+        guard.run(["sudo", "zypper", "--non-interactive", "remove", app_id], f"Removing {app_id} (Zypper)")
 
     def update(self):
         console.print("[yellow]Note: Zypper update requires sudo.[/yellow]")
-        subprocess.run(["sudo", "zypper", "--non-interactive", "update"], check=False)
+        guard.run(["sudo", "zypper", "--non-interactive", "update"], "Updating Zypper packages")
 
     def info(self, app_id: str) -> str:
         return self._run(["info", app_id])
@@ -755,20 +733,17 @@ class ApkManager(PackageManager):
 
     def install(self, app_id: str) -> bool:
         console.print("[yellow]Note: APK installation requires sudo.[/yellow]")
-        try:
-            subprocess.run(["sudo", "apk", "add", app_id], check=True)
-            return True
-        except Exception:
-            return False
+        return guard.run(["sudo", "apk", "add", app_id], f"Installing {app_id} (APK)",
+                          reversible=True, reverse_cmd=["sudo", "apk", "del", app_id])
 
     def remove(self, app_id: str):
         console.print("[yellow]Note: APK removal requires sudo.[/yellow]")
-        subprocess.run(["sudo", "apk", "del", app_id], check=False)
+        guard.run(["sudo", "apk", "del", app_id], f"Removing {app_id} (APK)")
 
     def update(self):
         console.print("[yellow]Note: APK update requires sudo.[/yellow]")
-        subprocess.run(["sudo", "apk", "update"], check=False)
-        subprocess.run(["sudo", "apk", "upgrade"], check=False)
+        guard.run(["sudo", "apk", "update"], "Updating APK package index")
+        guard.run(["sudo", "apk", "upgrade"], "Upgrading APK packages")
 
     def info(self, app_id: str) -> str:
         return self._run(["info", app_id])
@@ -847,19 +822,16 @@ class XbpsManager(PackageManager):
 
     def install(self, app_id: str) -> bool:
         console.print("[yellow]Note: XBPS installation requires sudo.[/yellow]")
-        try:
-            subprocess.run(["sudo", "xbps-install", "-y", app_id], check=True)
-            return True
-        except Exception:
-            return False
+        return guard.run(["sudo", "xbps-install", "-y", app_id], f"Installing {app_id} (XBPS)",
+                          reversible=True, reverse_cmd=["sudo", "xbps-remove", "-y", app_id])
 
     def remove(self, app_id: str):
         console.print("[yellow]Note: XBPS removal requires sudo.[/yellow]")
-        subprocess.run(["sudo", "xbps-remove", "-y", app_id], check=False)
+        guard.run(["sudo", "xbps-remove", "-y", app_id], f"Removing {app_id} (XBPS)")
 
     def update(self):
         console.print("[yellow]Note: XBPS update requires sudo.[/yellow]")
-        subprocess.run(["sudo", "xbps-install", "-Su", "-y"], check=False)
+        guard.run(["sudo", "xbps-install", "-Su", "-y"], "Updating XBPS packages")
 
     def info(self, app_id: str) -> str:
         return self._run(["xbps-query", "-R", app_id])
@@ -933,19 +905,16 @@ class EmergeManager(PackageManager):
 
     def install(self, app_id: str) -> bool:
         console.print("[yellow]Note: Portage installation requires sudo and may take a long time (source compilation).[/yellow]")
-        try:
-            subprocess.run(["sudo", "emerge", "--ask=n", app_id], check=True)
-            return True
-        except Exception:
-            return False
+        return guard.run(["sudo", "emerge", "--ask=n", app_id], f"Installing {app_id} (Portage)",
+                          reversible=True, reverse_cmd=["sudo", "emerge", "--ask=n", "--unmerge", app_id])
 
     def remove(self, app_id: str):
         console.print("[yellow]Note: Portage removal requires sudo.[/yellow]")
-        subprocess.run(["sudo", "emerge", "--ask=n", "--unmerge", app_id], check=False)
+        guard.run(["sudo", "emerge", "--ask=n", "--unmerge", app_id], f"Removing {app_id} (Portage)")
 
     def update(self):
         console.print("[yellow]Note: Portage update requires sudo and may take a long time.[/yellow]")
-        subprocess.run(["sudo", "emerge", "--ask=n", "--update", "--deep", "--newuse", "@world"], check=False)
+        guard.run(["sudo", "emerge", "--ask=n", "--update", "--deep", "--newuse", "@world"], "Updating Portage/world")
 
     def info(self, app_id: str) -> str:
         return self._run(["emerge", "--pretend", "--verbose", app_id])
@@ -1242,7 +1211,7 @@ def interactive_curated():
                             selected_apps.add(target)
 
 def interactive_tweaks():
-    optimizer = SystemOptimizer(console)
+    optimizer = SystemOptimizer(console, guard)
     while True:
         console.clear()
         console.print(Panel("[bold white]Advanced System Optimization[/bold white]", subtitle="Performance Tweaks"))
@@ -1276,7 +1245,7 @@ def interactive_tweaks():
         Prompt.ask("Press Enter to continue")
 
 def interactive_deploy():
-    optimizer = SystemOptimizer(console)
+    optimizer = SystemOptimizer(console, guard)
     console.clear()
     console.print(Panel("[bold green]One-Click System Setup[/bold green]", subtitle="Update, Optimize & Install Essentials"))
     
@@ -1348,6 +1317,26 @@ def interactive_deploy():
     console.print("\n[bold green]✨ System Setup Complete! ✨[/bold green]")
     Prompt.ask("Press Enter to return to menu")
 
+def interactive_history():
+    while True:
+        console.clear()
+        console.print(guard.history())
+        console.print("\n[bold]Controls:[/bold]")
+        console.print("  [cyan]u[/cyan] : Undo last action")
+        console.print("  [cyan]a[/cyan] : Undo ALL reversible actions")
+        console.print("  [red]b[/red] : Back")
+
+        choice = Prompt.ask("Selection", default="b")
+        if choice.lower() == 'b':
+            break
+        elif choice.lower() == 'u':
+            guard.undo(1)
+            Prompt.ask("Press Enter to continue")
+        elif choice.lower() == 'a':
+            if Confirm.ask("[bold red]Undo every reversible action ULPM has taken?[/bold red]"):
+                guard.undo(None)
+                Prompt.ask("Press Enter to continue")
+
 def main_menu():
     while True:
         console.clear()
@@ -1357,11 +1346,12 @@ def main_menu():
         console.print("3. [bold yellow]List & Manage Installed[/bold yellow]")
         console.print("4. [bold blue]Update All[/bold blue]")
         console.print("5. [bold white]Advanced Optimization[/bold white]")
-        console.print("6. [bold green]One-Click Setup[/bold green] [bold red](NEW!)[/bold red]")
-        console.print("7. [bold red]Exit[/bold red]")
-        
-        choice = Prompt.ask("Choose an option", choices=["1", "2", "3", "4", "5", "6", "7"], default="1")
-        
+        console.print("6. [bold green]One-Click Setup[/bold green]")
+        console.print("7. [bold cyan]Change History / Undo[/bold cyan]")
+        console.print("8. [bold red]Exit[/bold red]")
+
+        choice = Prompt.ask("Choose an option", choices=["1", "2", "3", "4", "5", "6", "7", "8"], default="1")
+
         if choice == "1":
             interactive_search()
         elif choice == "2":
@@ -1376,16 +1366,22 @@ def main_menu():
         elif choice == "6":
             interactive_deploy()
         elif choice == "7":
+            interactive_history()
+        elif choice == "8":
             console.print("[bold]Goodbye![/bold]")
             break
 
 @app.callback(invoke_without_command=True)
-def main(ctx: typer.Context):
+def main(
+    ctx: typer.Context,
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview system-modifying actions without applying them."),
+):
     """
     Universal Linux Package Manager (ULPM)
     A beautiful CLI for managing Flatpak, Snap, and System Packages.
     If no command is given, launches interactive mode.
     """
+    guard.dry_run = dry_run
     if ctx.invoked_subcommand is None:
         bootstrap_app_stores()
         main_menu()
@@ -1501,6 +1497,19 @@ def info(app_id: str, manager: str = typer.Option("flatpak", help="Manager to us
         console.print(Panel(info_text, title=f"Info: {app_id}", border_style=mgr.color))
     else:
         console.print(f"[red]No info found for {app_id}[/red]")
+
+@app.command()
+def undo(
+    all: bool = typer.Option(False, "--all", help="Undo every reversible action instead of just the last one."),
+    count: int = typer.Option(1, "--count", help="Number of recent reversible actions to undo."),
+):
+    """Reverse recent system-modifying actions (installs, tweaks) tracked in the change log."""
+    guard.undo(None if all else count)
+
+@app.command()
+def history():
+    """Show the recent history of system-modifying actions ULPM has taken."""
+    console.print(guard.history())
 
 if __name__ == "__main__":
     app()
