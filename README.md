@@ -1,9 +1,10 @@
 # Universal Linux Package Manager(ULPM)
 
-A beautiful, all-in-one CLI tool for managing **Flatpak**, **Snap**, and **System Packages** (DNF, APT, Pacman) on Linux.
+A beautiful, all-in-one CLI tool for managing **Flatpak**, **Snap**, and **System Packages** (DNF, APT, Pacman, Zypper, APK, XBPS, Portage) on Linux.
 
 ## Features
-- **Unified Management**: Manage Flatpak, Snap, and native system apps (DNF, APT, Pacman) in one place.
+- **Unified Management**: Manage Flatpak, Snap, and native system apps (DNF, APT, Pacman, Zypper, APK, XBPS, Portage) in one place.
+- **Self-Bootstrapping**: If Flatpak or Snap aren't preinstalled, ULPM offers to install them for you via your system's native package manager.
 - **Smart App Filtering**: Automatically filters system packages to show only user-facing applications (via .desktop files).
 - **Interactive Mode**: Easy-to-use menu system for browsing and managing apps.
 - **Search**: Find apps across all repositories with rich formatted tables.

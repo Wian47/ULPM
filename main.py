@@ -43,7 +43,12 @@ class FlatpakManager(PackageManager):
     name = "Flatpak"
     color = "blue"
 
+    def __init__(self):
+        self.available = shutil.which("flatpak") is not None
+
     def _run(self, args: List[str], capture: bool = True) -> str:
+        if not self.available:
+            return ""
         cmd = ["flatpak"] + args
         try:
             if capture:
@@ -52,10 +57,12 @@ class FlatpakManager(PackageManager):
             else:
                 subprocess.run(cmd, check=True)
                 return ""
-        except subprocess.CalledProcessError:
+        except (subprocess.CalledProcessError, FileNotFoundError):
             return ""
 
     def ensure_flathub(self):
+        if not self.available:
+            return
         # Check if flathub exists
         output = self._run(["remote-list"], capture=True)
         if "flathub" not in output:
@@ -95,26 +102,35 @@ class FlatpakManager(PackageManager):
         return results
 
     def install(self, app_id: str) -> bool:
+        if not self.available:
+            console.print("[red]Flatpak isn't installed on this system.[/red]")
+            return False
         self.ensure_flathub()
-        # Interactive
         try:
-            # We use check=True in _run, so it will raise CalledProcessError on failure
-            # Explicitly use flathub remote to avoid "No remote refs found" if multiple remotes exist or if it's not searching correctly
-            self._run(["install", "-y", "flathub", app_id], capture=False)
+            # _run() swallows CalledProcessError internally (needed for search/list/info,
+            # where a failure should just mean "no output"), so call subprocess directly
+            # here to let install failures actually propagate and be reported.
+            subprocess.run(["flatpak", "install", "-y", "flathub", app_id], check=True)
             return True
-        except Exception:
+        except subprocess.CalledProcessError:
             # Fallback: try without remote specifier if flathub fails (unlikely but safe)
             try:
-                self._run(["install", "-y", app_id], capture=False)
+                subprocess.run(["flatpak", "install", "-y", app_id], check=True)
                 return True
-            except Exception:
+            except subprocess.CalledProcessError:
                 return False
 
     def remove(self, app_id: str):
+        if not self.available:
+            console.print("[red]Flatpak isn't installed on this system.[/red]")
+            return
         # Interactive
         self._run(["uninstall", app_id], capture=False)
 
     def update(self):
+        if not self.available:
+            console.print("[red]Flatpak isn't installed on this system.[/red]")
+            return
         self._run(["update"], capture=False)
 
     def info(self, app_id: str) -> str:
@@ -211,6 +227,8 @@ class SnapManager(PackageManager):
 class DnfManager(PackageManager):
     name = "DNF"
     color = "yellow"
+    flatpak_pkg = "flatpak"
+    snap_pkg = "snapd"
 
     def __init__(self):
         self.available = shutil.which("dnf") is not None
@@ -327,6 +345,8 @@ class DnfManager(PackageManager):
 class AptManager(PackageManager):
     name = "APT"
     color = "red"
+    flatpak_pkg = "flatpak"
+    snap_pkg = "snapd"
 
     def __init__(self):
         self.available = shutil.which("apt") is not None
@@ -444,6 +464,8 @@ class AptManager(PackageManager):
 class PacmanManager(PackageManager):
     name = "Pacman"
     color = "yellow"
+    flatpak_pkg = "flatpak"
+    snap_pkg = None  # snapd is AUR-only on Arch; not installable via pacman directly
 
     def __init__(self):
         self.available = shutil.which("pacman") is not None
@@ -553,6 +575,381 @@ class PacmanManager(PackageManager):
     def info(self, app_id: str) -> str:
         return self._run(["-Si", app_id])
 
+class ZypperManager(PackageManager):
+    name = "Zypper"
+    color = "magenta"
+    flatpak_pkg = "flatpak"
+    snap_pkg = "snapd"
+
+    def __init__(self):
+        self.available = shutil.which("zypper") is not None
+
+    def _run(self, args: List[str], capture: bool = True) -> str:
+        if not self.available:
+            return ""
+        cmd = ["zypper", "--non-interactive"] + args
+        try:
+            if capture:
+                result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+                return result.stdout
+            else:
+                subprocess.run(cmd, check=False)
+                return ""
+        except Exception:
+            return ""
+
+    def search(self, query: str) -> List[Dict[str, str]]:
+        if not self.available: return []
+        output = self._run(["search", query])
+        results = []
+        if output:
+            lines = output.strip().split('\n')
+            started = False
+            for line in lines:
+                if line.strip().startswith("--"):
+                    started = True
+                    continue
+                if not started or "|" not in line:
+                    continue
+                parts = [p.strip() for p in line.split('|')]
+                if len(parts) >= 4:
+                    name = parts[1]
+                    summary = parts[2]
+                    if not name or name.lower() == "name":
+                        continue
+                    results.append({
+                        "name": name,
+                        "description": summary,
+                        "id": name,
+                        "version": "repo",
+                        "source": "zypper"
+                    })
+        return results
+
+    def list_installed(self) -> List[Dict[str, str]]:
+        desktop_files = glob.glob("/usr/share/applications/*.desktop")
+        if not desktop_files: return []
+
+        cmd = ["rpm", "-qf", "--qf", "%{NAME}\t%{VERSION}\t%{SUMMARY}\n"] + desktop_files
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            output = result.stdout
+        except Exception:
+            return []
+
+        results = []
+        seen_ids = set()
+        if output:
+            for line in output.strip().split('\n'):
+                parts = line.split('\t')
+                if len(parts) >= 3:
+                    name = parts[0]
+                    if name in seen_ids:
+                        continue
+                    seen_ids.add(name)
+                    results.append({
+                        "name": name,
+                        "id": name,
+                        "version": parts[1],
+                        "description": parts[2],
+                        "source": "zypper"
+                    })
+        return results
+
+    def install(self, app_id: str) -> bool:
+        console.print("[yellow]Note: Zypper installation requires sudo.[/yellow]")
+        try:
+            subprocess.run(["sudo", "zypper", "--non-interactive", "install", "-y", app_id], check=True)
+            return True
+        except Exception:
+            return False
+
+    def remove(self, app_id: str):
+        console.print("[yellow]Note: Zypper removal requires sudo.[/yellow]")
+        subprocess.run(["sudo", "zypper", "--non-interactive", "remove", app_id], check=False)
+
+    def update(self):
+        console.print("[yellow]Note: Zypper update requires sudo.[/yellow]")
+        subprocess.run(["sudo", "zypper", "--non-interactive", "update"], check=False)
+
+    def info(self, app_id: str) -> str:
+        return self._run(["info", app_id])
+
+class ApkManager(PackageManager):
+    name = "APK"
+    color = "cyan"
+    flatpak_pkg = "flatpak"
+    snap_pkg = None  # snapd isn't packaged for Alpine's musl base
+
+    def __init__(self):
+        self.available = shutil.which("apk") is not None
+
+    def _run(self, args: List[str], capture: bool = True) -> str:
+        if not self.available:
+            return ""
+        cmd = ["apk"] + args
+        try:
+            if capture:
+                result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+                return result.stdout
+            else:
+                subprocess.run(cmd, check=False)
+                return ""
+        except Exception:
+            return ""
+
+    def search(self, query: str) -> List[Dict[str, str]]:
+        if not self.available: return []
+        output = self._run(["search", "-v", query])
+        results = []
+        if output:
+            for line in output.strip().split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                parts = line.split(' - ', 1)
+                pkg = parts[0].strip()
+                description = parts[1].strip() if len(parts) > 1 else "Alpine Package"
+                # pkg looks like name-version-r<release>; strip the trailing version/release
+                segments = pkg.rsplit('-', 2)
+                name = segments[0] if len(segments) == 3 else pkg
+                results.append({
+                    "name": name,
+                    "description": description,
+                    "id": name,
+                    "version": "repo",
+                    "source": "alpine"
+                })
+        return results
+
+    def list_installed(self) -> List[Dict[str, str]]:
+        if not self.available: return []
+        desktop_files = glob.glob("/usr/share/applications/*.desktop")
+        if not desktop_files: return []
+
+        cmd = ["apk", "info", "--who-owns"] + desktop_files
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            output = result.stdout
+        except Exception:
+            return []
+
+        results = []
+        seen_ids = set()
+        if output:
+            for line in output.strip().split('\n'):
+                if " is owned by " in line:
+                    pkg = line.split(" is owned by ")[1].strip()
+                    segments = pkg.rsplit('-', 2)
+                    name = segments[0] if len(segments) == 3 else pkg
+                    if name in seen_ids:
+                        continue
+                    seen_ids.add(name)
+                    results.append({
+                        "name": name,
+                        "id": name,
+                        "version": segments[1] if len(segments) == 3 else "",
+                        "source": "alpine"
+                    })
+        return results
+
+    def install(self, app_id: str) -> bool:
+        console.print("[yellow]Note: APK installation requires sudo.[/yellow]")
+        try:
+            subprocess.run(["sudo", "apk", "add", app_id], check=True)
+            return True
+        except Exception:
+            return False
+
+    def remove(self, app_id: str):
+        console.print("[yellow]Note: APK removal requires sudo.[/yellow]")
+        subprocess.run(["sudo", "apk", "del", app_id], check=False)
+
+    def update(self):
+        console.print("[yellow]Note: APK update requires sudo.[/yellow]")
+        subprocess.run(["sudo", "apk", "update"], check=False)
+        subprocess.run(["sudo", "apk", "upgrade"], check=False)
+
+    def info(self, app_id: str) -> str:
+        return self._run(["info", app_id])
+
+class XbpsManager(PackageManager):
+    name = "XBPS"
+    color = "bright_blue"
+    flatpak_pkg = "flatpak"
+    snap_pkg = None  # not officially packaged for Void
+
+    def __init__(self):
+        self.available = shutil.which("xbps-query") is not None
+
+    def _run(self, cmd: List[str], capture: bool = True) -> str:
+        try:
+            if capture:
+                result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+                return result.stdout
+            else:
+                subprocess.run(cmd, check=False)
+                return ""
+        except Exception:
+            return ""
+
+    def search(self, query: str) -> List[Dict[str, str]]:
+        if not self.available: return []
+        output = self._run(["xbps-query", "-Rs", query])
+        results = []
+        if output:
+            for line in output.strip().split('\n'):
+                line = line.strip()
+                if not line.startswith('['):
+                    continue
+                rest = line[4:].strip()  # drop "[*] " / "[-] " state marker
+                parts = rest.split(None, 1)
+                if not parts:
+                    continue
+                pkgver = parts[0]
+                description = parts[1] if len(parts) > 1 else ""
+                name = pkgver.rsplit('-', 1)[0] if '-' in pkgver else pkgver
+                results.append({
+                    "name": name,
+                    "description": description,
+                    "id": name,
+                    "version": "repo",
+                    "source": "void"
+                })
+        return results
+
+    def list_installed(self) -> List[Dict[str, str]]:
+        if not self.available: return []
+        desktop_files = glob.glob("/usr/share/applications/*.desktop")
+        if not desktop_files: return []
+
+        cmd = ["xbps-query", "-o"] + desktop_files
+        output = self._run(cmd)
+
+        results = []
+        seen_ids = set()
+        if output:
+            for line in output.strip().split('\n'):
+                if ':' not in line:
+                    continue
+                pkgver = line.split(':', 1)[0].strip()
+                name = pkgver.rsplit('-', 1)[0] if '-' in pkgver else pkgver
+                if name in seen_ids:
+                    continue
+                seen_ids.add(name)
+                results.append({
+                    "name": name,
+                    "id": name,
+                    "version": "",
+                    "source": "void"
+                })
+        return results
+
+    def install(self, app_id: str) -> bool:
+        console.print("[yellow]Note: XBPS installation requires sudo.[/yellow]")
+        try:
+            subprocess.run(["sudo", "xbps-install", "-y", app_id], check=True)
+            return True
+        except Exception:
+            return False
+
+    def remove(self, app_id: str):
+        console.print("[yellow]Note: XBPS removal requires sudo.[/yellow]")
+        subprocess.run(["sudo", "xbps-remove", "-y", app_id], check=False)
+
+    def update(self):
+        console.print("[yellow]Note: XBPS update requires sudo.[/yellow]")
+        subprocess.run(["sudo", "xbps-install", "-Su", "-y"], check=False)
+
+    def info(self, app_id: str) -> str:
+        return self._run(["xbps-query", "-R", app_id])
+
+class EmergeManager(PackageManager):
+    name = "Portage"
+    color = "purple"
+    flatpak_pkg = "sys-apps/flatpak"
+    snap_pkg = None  # snap isn't part of the standard Gentoo/Portage workflow
+
+    def __init__(self):
+        self.available = shutil.which("emerge") is not None
+
+    def _run(self, cmd: List[str], capture: bool = True) -> str:
+        try:
+            if capture:
+                result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+                return result.stdout
+            else:
+                subprocess.run(cmd, check=False)
+                return ""
+        except Exception:
+            return ""
+
+    def search(self, query: str) -> List[Dict[str, str]]:
+        if not self.available: return []
+        console.print("[dim]Searching the Portage tree can take a while on Gentoo...[/dim]")
+        output = self._run(["emerge", "--search", query])
+        results = []
+        if output:
+            current_name = None
+            for line in output.split('\n'):
+                if line.startswith("* "):
+                    current_name = line[2:].strip()
+                elif "Description:" in line and current_name:
+                    description = line.split("Description:", 1)[1].strip()
+                    results.append({
+                        "name": current_name.split('/')[-1],
+                        "description": description,
+                        "id": current_name,
+                        "version": "repo",
+                        "source": "gentoo"
+                    })
+                    current_name = None
+        return results
+
+    def list_installed(self) -> List[Dict[str, str]]:
+        if not self.available or not shutil.which("qfile"): return []
+        desktop_files = glob.glob("/usr/share/applications/*.desktop")
+        if not desktop_files: return []
+
+        output = self._run(["qfile", "-qC"] + desktop_files)
+        results = []
+        seen_ids = set()
+        if output:
+            for line in output.strip().split('\n'):
+                atom = line.strip()
+                if not atom:
+                    continue
+                name = atom.rsplit('-', 1)[0] if '-' in atom else atom
+                if name in seen_ids:
+                    continue
+                seen_ids.add(name)
+                results.append({
+                    "name": name.split('/')[-1],
+                    "id": name,
+                    "version": "",
+                    "source": "gentoo"
+                })
+        return results
+
+    def install(self, app_id: str) -> bool:
+        console.print("[yellow]Note: Portage installation requires sudo and may take a long time (source compilation).[/yellow]")
+        try:
+            subprocess.run(["sudo", "emerge", "--ask=n", app_id], check=True)
+            return True
+        except Exception:
+            return False
+
+    def remove(self, app_id: str):
+        console.print("[yellow]Note: Portage removal requires sudo.[/yellow]")
+        subprocess.run(["sudo", "emerge", "--ask=n", "--unmerge", app_id], check=False)
+
+    def update(self):
+        console.print("[yellow]Note: Portage update requires sudo and may take a long time.[/yellow]")
+        subprocess.run(["sudo", "emerge", "--ask=n", "--update", "--deep", "--newuse", "@world"], check=False)
+
+    def info(self, app_id: str) -> str:
+        return self._run(["emerge", "--pretend", "--verbose", app_id])
+
 # Initialize Managers
 managers = [FlatpakManager(), SnapManager()]
 
@@ -563,6 +960,14 @@ elif shutil.which("apt"):
     managers.append(AptManager())
 elif shutil.which("pacman"):
     managers.append(PacmanManager())
+elif shutil.which("zypper"):
+    managers.append(ZypperManager())
+elif shutil.which("apk"):
+    managers.append(ApkManager())
+elif shutil.which("xbps-query"):
+    managers.append(XbpsManager())
+elif shutil.which("emerge"):
+    managers.append(EmergeManager())
 
 # --- Curated Apps Data ---
 
@@ -576,6 +981,38 @@ def load_curated_apps():
     return {}
 
 CURATED_APPS = load_curated_apps()
+
+def bootstrap_app_stores():
+    """On a fresh box, Flatpak/Snap usually aren't preinstalled. Offer to install
+    them via whatever system package manager was detected, so the very first run
+    of ULPM can bootstrap a working app ecosystem instead of assuming one exists."""
+    system_mgr = managers[2] if len(managers) > 2 else None
+    flatpak_mgr = next((m for m in managers if isinstance(m, FlatpakManager)), None)
+    snap_mgr = next((m for m in managers if isinstance(m, SnapManager)), None)
+
+    if flatpak_mgr and not flatpak_mgr.available:
+        pkg = getattr(system_mgr, "flatpak_pkg", None) if system_mgr else None
+        if pkg:
+            if Confirm.ask(f"[yellow]Flatpak isn't installed. Install it now via {system_mgr.name}?[/yellow]"):
+                if system_mgr.install(pkg):
+                    flatpak_mgr.available = True
+                    console.print("[green]Flatpak installed.[/green]")
+                else:
+                    console.print("[red]Flatpak install failed. You can install it manually later.[/red]")
+        else:
+            console.print("[dim]Flatpak isn't installed and ULPM doesn't know how to install it on this system.[/dim]")
+
+    if snap_mgr and not snap_mgr.available:
+        pkg = getattr(system_mgr, "snap_pkg", None) if system_mgr else None
+        if pkg is None and system_mgr is not None:
+            console.print(f"[dim]Snap isn't installed. {system_mgr.name} doesn't support installing it directly (needs a helper like an AUR helper on Arch, or isn't packaged for this distro); skipping auto-install.[/dim]")
+        elif pkg:
+            if Confirm.ask(f"[yellow]Snap isn't installed. Install it now via {system_mgr.name}?[/yellow]"):
+                if system_mgr.install(pkg):
+                    snap_mgr.available = True
+                    console.print("[green]snapd installed. You may need to log out/in or reboot before snap works.[/green]")
+                else:
+                    console.print("[red]snapd install failed. You can install it manually later.[/red]")
 
 # --- Interactive Functions ---
 
@@ -950,6 +1387,7 @@ def main(ctx: typer.Context):
     If no command is given, launches interactive mode.
     """
     if ctx.invoked_subcommand is None:
+        bootstrap_app_stores()
         main_menu()
 
 @app.command()
@@ -987,7 +1425,7 @@ def search(query: str):
     console.print(table)
 
 @app.command()
-def install(app_id: str, manager: str = typer.Option("flatpak", help="Manager to use: flatpak, snap, dnf, apt, or pacman")):
+def install(app_id: str, manager: str = typer.Option("flatpak", help="Manager to use: flatpak, snap, dnf, apt, pacman, zypper, apk, xbps, or portage")):
     """Install an application."""
     mgr = next((m for m in managers if m.name.lower() == manager.lower()), None)
     if not mgr:
@@ -1038,7 +1476,7 @@ def list_apps():
     console.print(table)
 
 @app.command()
-def remove(app_id: str, manager: str = typer.Option("flatpak", help="Manager to use: flatpak, snap, dnf, apt, or pacman")):
+def remove(app_id: str, manager: str = typer.Option("flatpak", help="Manager to use: flatpak, snap, dnf, apt, pacman, zypper, apk, xbps, or portage")):
     """Uninstall an application."""
     mgr = next((m for m in managers if m.name.lower() == manager.lower()), None)
     if not mgr:
@@ -1051,7 +1489,7 @@ def remove(app_id: str, manager: str = typer.Option("flatpak", help="Manager to 
         console.print("[yellow]Operation cancelled.[/yellow]")
 
 @app.command()
-def info(app_id: str, manager: str = typer.Option("flatpak", help="Manager to use: flatpak, snap, dnf, apt, or pacman")):
+def info(app_id: str, manager: str = typer.Option("flatpak", help="Manager to use: flatpak, snap, dnf, apt, pacman, zypper, apk, xbps, or portage")):
     """Show details about an application."""
     mgr = next((m for m in managers if m.name.lower() == manager.lower()), None)
     if not mgr:
