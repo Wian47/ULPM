@@ -10,6 +10,7 @@ from typing import Optional, List, Dict
 import glob
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from importlib import resources
 
 from .tweaks import SystemOptimizer
@@ -987,6 +988,26 @@ def load_profiles():
 CURATED_APPS = load_curated_apps()
 PROFILES = load_profiles()
 
+def query_all_managers(method_name: str, *args) -> List[Dict]:
+    """Runs a read-only method (search/list_installed) across every manager in
+    parallel via threads. These are all I/O-bound subprocess calls (some
+    hitting a network store, some running notoriously slow tools like dnf/apt),
+    so doing them one after another means the total wait is the *sum* of every
+    manager's time instead of just the slowest one."""
+    results = []
+    with ThreadPoolExecutor(max_workers=max(len(managers), 1)) as executor:
+        futures = {executor.submit(getattr(mgr, method_name), *args): mgr for mgr in managers}
+        for future in as_completed(futures):
+            mgr = futures[future]
+            try:
+                mgr_results = future.result()
+            except Exception:
+                mgr_results = []
+            for r in mgr_results:
+                r['manager'] = mgr
+            results.extend(mgr_results)
+    return results
+
 def install_curated_app(app_data: dict) -> bool:
     """Tries Flatpak first, then Snap, for a curated app entry. Shared by the
     curated-app browser and setup profiles so both stay in sync."""
@@ -1056,13 +1077,8 @@ def interactive_search():
         if query.lower() == 'b':
             break
         
-        all_results = []
         with console.status(f"[bold green]Searching for '{query}'...[/bold green]", spinner="dots"):
-            for mgr in managers:
-                results = mgr.search(query)
-                for r in results:
-                    r['manager'] = mgr
-                all_results.extend(results)
+            all_results = query_all_managers('search', query)
 
         if not all_results:
             console.print(f"[yellow]No results found for '{query}'.[/yellow]")
@@ -1109,14 +1125,9 @@ def interactive_search():
 def interactive_list():
     while True:
         console.clear()
-        all_apps = []
         with console.status("[bold green]Fetching installed apps...[/bold green]"):
-            for mgr in managers:
-                apps = mgr.list_installed()
-                for a in apps:
-                    a['manager'] = mgr
-                all_apps.extend(apps)
-        
+            all_apps = query_all_managers('list_installed')
+
         if not all_apps:
             console.print("[yellow]No apps installed.[/yellow]")
             Prompt.ask("Press Enter to back")
@@ -1496,13 +1507,8 @@ def main(
 @app.command()
 def search(query: str):
     """Search for applications (Flatpak, Snap, & DNF)."""
-    all_results = []
     with console.status(f"[bold green]Searching for '{query}'...[/bold green]", spinner="dots"):
-        for mgr in managers:
-            results = mgr.search(query)
-            for r in results:
-                r['manager'] = mgr
-            all_results.extend(results)
+        all_results = query_all_managers('search', query)
 
     if not all_results:
         console.print(f"[yellow]No results found for '{query}'.[/yellow]")
@@ -1549,13 +1555,8 @@ def update():
 @app.command("list")
 def list_apps():
     """List installed applications."""
-    all_apps = []
     with console.status("[bold green]Fetching installed apps...[/bold green]"):
-        for mgr in managers:
-            apps = mgr.list_installed()
-            for a in apps:
-                a['manager'] = mgr
-            all_apps.extend(apps)
+        all_apps = query_all_managers('list_installed')
 
     if not all_apps:
         console.print("[yellow]No apps installed.[/yellow]")
