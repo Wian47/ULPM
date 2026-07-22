@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  smoke-test:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu
+            image: docker.io/library/ubuntu:24.04
+            manager: apt
+            setup: apt-get update -y && apt-get install -y python3 python3-pip python3-venv git
+          - name: Fedora
+            image: docker.io/library/fedora:latest
+            manager: dnf
+            setup: dnf install -y python3 python3-pip git
+          - name: Arch Linux
+            image: docker.io/library/archlinux:latest
+            manager: pacman
+            setup: pacman -Sy --noconfirm python python-pip git
+          - name: openSUSE Tumbleweed
+            image: docker.io/opensuse/tumbleweed:latest
+            manager: zypper
+            setup: zypper --non-interactive ref && zypper --non-interactive install python3 python3-pip git
+          - name: Alpine
+            image: docker.io/library/alpine:latest
+            manager: apk
+            setup: apk add --no-cache python3 py3-pip git
+    steps:
+      - uses: actions/checkout@v4
+
+      # Runs the smoke test inside the target distro's own container image via
+      # `docker run` rather than GitHub's `container:` job option, since
+      # actions/checkout needs Node and injecting it into minimal/musl images
+      # (Alpine) is unreliable. This keeps the checkout on the ubuntu-latest
+      # host and only the actual ULPM test runs inside the distro image.
+      - name: Smoke test inside ${{ matrix.name }}
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo ${{ matrix.image }} sh -c '
+            set -e
+            ${{ matrix.setup }}
+            python3 -m pip install --break-system-packages . 2>/dev/null || python3 -m pip install .
+            ulpm --help
+            ulpm list || true
+            ulpm --dry-run install curl --manager ${{ matrix.manager }}
+          '

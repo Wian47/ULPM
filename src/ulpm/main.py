@@ -17,6 +17,7 @@ from .safety import SystemGuard
 from .security import SecurityManager
 from .drivers import DriverManager
 from .shell_setup import ShellSetup
+from .distro import detect_atomic
 
 app = typer.Typer(help="Universal Linux Package Manager (ULPM) - A beautiful CLI for managing Flatpak, Snap, and System Packages.")
 console = Console()
@@ -227,6 +228,7 @@ class DnfManager(PackageManager):
 
     def __init__(self):
         self.available = shutil.which("dnf") is not None
+        self.atomic = detect_atomic() == "rpm-ostree"
 
     def _run(self, args: List[str], capture: bool = True) -> str:
         if not self.available:
@@ -319,15 +321,25 @@ class DnfManager(PackageManager):
         return results 
 
     def install(self, app_id: str) -> bool:
+        if self.atomic:
+            console.print("[yellow]Atomic system (rpm-ostree) detected: layering package. A reboot is needed before it's usable.[/yellow]")
+            return guard.run(["sudo", "rpm-ostree", "install", app_id], f"Layering {app_id} (rpm-ostree)",
+                              reversible=True, reverse_cmd=["sudo", "rpm-ostree", "uninstall", app_id])
         console.print("[yellow]Note: DNF installation requires sudo.[/yellow]")
         return guard.run(["sudo", "dnf", "install", "-y", app_id], f"Installing {app_id} (DNF)",
                           reversible=True, reverse_cmd=["sudo", "dnf", "remove", "-y", app_id])
 
     def remove(self, app_id: str):
+        if self.atomic:
+            guard.run(["sudo", "rpm-ostree", "uninstall", app_id], f"Un-layering {app_id} (rpm-ostree)")
+            return
         console.print("[yellow]Note: DNF removal requires sudo.[/yellow]")
         guard.run(["sudo", "dnf", "remove", "-y", app_id], f"Removing {app_id} (DNF)")
 
     def update(self):
+        if self.atomic:
+            guard.run(["sudo", "rpm-ostree", "upgrade"], "Upgrading system (rpm-ostree)")
+            return
         console.print("[yellow]Note: DNF update requires sudo.[/yellow]")
         guard.run(["sudo", "dnf", "update", "-y"], "Updating DNF packages")
 
@@ -569,6 +581,7 @@ class ZypperManager(PackageManager):
 
     def __init__(self):
         self.available = shutil.which("zypper") is not None
+        self.atomic = detect_atomic() == "transactional-update"
 
     def _run(self, args: List[str], capture: bool = True) -> str:
         if not self.available:
@@ -643,15 +656,25 @@ class ZypperManager(PackageManager):
         return results
 
     def install(self, app_id: str) -> bool:
+        if self.atomic:
+            console.print("[yellow]Atomic system (transactional-update) detected: staging package in a new snapshot. A reboot is needed before it's usable.[/yellow]")
+            return guard.run(["sudo", "transactional-update", "pkg", "install", app_id], f"Staging {app_id} (transactional-update)",
+                              reversible=True, reverse_cmd=["sudo", "transactional-update", "pkg", "remove", app_id])
         console.print("[yellow]Note: Zypper installation requires sudo.[/yellow]")
         return guard.run(["sudo", "zypper", "--non-interactive", "install", app_id], f"Installing {app_id} (Zypper)",
                           reversible=True, reverse_cmd=["sudo", "zypper", "--non-interactive", "remove", app_id])
 
     def remove(self, app_id: str):
+        if self.atomic:
+            guard.run(["sudo", "transactional-update", "pkg", "remove", app_id], f"Removing {app_id} (transactional-update)")
+            return
         console.print("[yellow]Note: Zypper removal requires sudo.[/yellow]")
         guard.run(["sudo", "zypper", "--non-interactive", "remove", app_id], f"Removing {app_id} (Zypper)")
 
     def update(self):
+        if self.atomic:
+            guard.run(["sudo", "transactional-update", "up"], "Updating system (transactional-update)")
+            return
         console.print("[yellow]Note: Zypper update requires sudo.[/yellow]")
         guard.run(["sudo", "zypper", "--non-interactive", "update"], "Updating Zypper packages")
 
@@ -988,6 +1011,13 @@ def bootstrap_app_stores():
     """On a fresh box, Flatpak/Snap usually aren't preinstalled. Offer to install
     them via whatever system package manager was detected, so the very first run
     of ULPM can bootstrap a working app ecosystem instead of assuming one exists."""
+    atomic = detect_atomic()
+    if atomic:
+        console.print(
+            f"[cyan]Atomic/immutable system detected ({atomic}). Desktop apps should generally "
+            "go through Flatpak; system package installs will be layered and need a reboot to take effect.[/cyan]"
+        )
+
     system_mgr = managers[2] if len(managers) > 2 else None
     flatpak_mgr = next((m for m in managers if isinstance(m, FlatpakManager)), None)
     snap_mgr = next((m for m in managers if isinstance(m, SnapManager)), None)
