@@ -1,6 +1,6 @@
 import shutil
 from rich.console import Console
-from safety import SystemGuard
+from .safety import SystemGuard
 
 class SystemOptimizer:
     def __init__(self, console: Console, guard: SystemGuard):

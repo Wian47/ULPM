@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ulpm"
+version = "0.2.0"
+description = "Universal Linux Package Manager - the first command you run on a fresh Linux install, any distro."
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [{name = "Wian47"}]
+dependencies = [
+    "typer>=0.12,<1.0",
+    "rich>=13.7,<14.0",
+    "shellingham>=1.5,<2.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/Wian47/ULPM"
+
+[project.scripts]
+ulpm = "ulpm.main:cli"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ulpm = ["apps.json"]

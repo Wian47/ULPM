@@ -10,8 +10,10 @@ from typing import Optional, List, Dict
 import glob
 import json
 import os
-from tweaks import SystemOptimizer
-from safety import SystemGuard
+from importlib import resources
+
+from .tweaks import SystemOptimizer
+from .safety import SystemGuard
 
 app = typer.Typer(help="Universal Linux Package Manager (ULPM) - A beautiful CLI for managing Flatpak, Snap, and System Packages.")
 console = Console()
@@ -943,11 +945,11 @@ elif shutil.which("emerge"):
 
 
 def load_curated_apps():
-    apps_path = os.path.join(os.path.dirname(__file__), "apps.json")
-    if os.path.exists(apps_path):
-        with open(apps_path, "r") as f:
-            return json.load(f)
-    return {}
+    try:
+        data = resources.files("ulpm").joinpath("apps.json").read_text()
+        return json.loads(data)
+    except (FileNotFoundError, ModuleNotFoundError):
+        return {}
 
 CURATED_APPS = load_curated_apps()
 
@@ -1511,5 +1513,8 @@ def history():
     """Show the recent history of system-modifying actions ULPM has taken."""
     console.print(guard.history())
 
-if __name__ == "__main__":
+def cli():
     app()
+
+if __name__ == "__main__":
+    cli()

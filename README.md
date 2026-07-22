@@ -12,23 +12,41 @@ A beautiful, all-in-one CLI tool for managing **Flatpak**, **Snap**, and **Syste
 - **Update**: Update all apps with one command.
 - **Beautiful UI**: Powered by `rich` and `typer`.
 - **Multi-Distro Support**: Automatically detects your package manager.
+- **Safety Net**: Every install and system tweak supports `--dry-run` preview and can be reversed with `ulpm undo`.
 
 ## Installation
 
+The one-liner — works on a genuinely fresh install with nothing preinstalled (it bootstraps python3/pip/pipx itself if they're missing):
+
 ```bash
-pip install -r requirements.txt
+curl -fsSL https://raw.githubusercontent.com/Wian47/ULPM/main/install.sh | sh
+```
+
+Or, if you already have Python and [pipx](https://pipx.pypa.io/):
+
+```bash
+pipx install "git+https://github.com/Wian47/ULPM.git"
+```
+
+For local development:
+
+```bash
+pip install -e .
 ```
 
 ## Usage
 
 **Interactive Mode:**
 ```bash
-python3 main.py
+ulpm
 ```
 
 **CLI Mode:**
 ```bash
-python3 main.py search <query>
-python3 main.py list
-python3 main.py install <app_id> --manager <flatpak|snap|dnf|apt|pacman>
+ulpm search <query>
+ulpm list
+ulpm install <app_id> --manager <flatpak|snap|dnf|apt|pacman|zypper|apk|xbps|portage>
+ulpm --dry-run install <app_id>   # preview without applying
+ulpm undo                          # reverse the last reversible action
+ulpm history                       # see everything ULPM has changed
 ```
