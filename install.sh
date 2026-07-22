@@ -114,4 +114,19 @@ ULPM_BIN="$HOME/.local/bin/ulpm"
 [ -x "$ULPM_BIN" ] || die "ULPM installed but $ULPM_BIN not found."
 
 log "Done. Launching ULPM..."
-exec "$ULPM_BIN" "$@"
+
+# When this script is run as `curl ... | sh`, this shell's stdin is the pipe
+# carrying the script itself, not the terminal -- so without this, ULPM's
+# very first interactive prompt would hit EOF instantly and abort. Re-point
+# stdin at the controlling terminal directly before handing off to it.
+#
+# The tty check runs in a subshell deliberately: a bare `exec < /dev/tty`
+# (redirection with no command) failing can terminate the *current* shell
+# outright in some shells, even inside this `if`, instead of just failing
+# the condition -- doing the failing probe in a subshell keeps that from
+# taking the whole script down when no tty is available.
+if ( : < /dev/tty ) 2>/dev/null; then
+    exec "$ULPM_BIN" "$@" < /dev/tty
+else
+    log "No interactive terminal detected; run 'ulpm' yourself to start it."
+fi
