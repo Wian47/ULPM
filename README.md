@@ -13,6 +13,10 @@ A beautiful, all-in-one CLI tool for managing **Flatpak**, **Snap**, and **Syste
 - **Beautiful UI**: Powered by `rich` and `typer`.
 - **Multi-Distro Support**: Automatically detects your package manager.
 - **Safety Net**: Every install and system tweak supports `--dry-run` preview and can be reversed with `ulpm undo`.
+- **Setup Profiles**: One-click "Developer Workstation," "Gaming Rig," "Minimal Server," and "Privacy Focused" profiles bundling curated apps, tweaks, and security hardening.
+- **Security Hardening**: Firewall (ufw/firewalld), fail2ban, and opt-in SSH hardening (double-confirmed to avoid remote lockouts).
+- **Driver & Gaming Setup**: Detects NVIDIA GPUs and offers driver install; one-click gaming performance tools (GameMode, MangoHud).
+- **Shell Setup**: Optional zsh+starship or fish, set as your default shell.
 
 ## Installation
 

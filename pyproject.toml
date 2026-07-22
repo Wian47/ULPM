@@ -25,4 +25,4 @@ ulpm = "ulpm.main:cli"
 where = ["src"]
 
 [tool.setuptools.package-data]
-ulpm = ["apps.json"]
+ulpm = ["apps.json", "profiles.json"]

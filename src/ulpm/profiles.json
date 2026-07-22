@@ -1,0 +1,34 @@
+{
+  "Developer Workstation": {
+    "desc": "Dev tools, a browser, and sane baseline tuning.",
+    "apps": [["Development", "VS Code"], ["Development", "Docker Desktop"], ["Browsers", "Firefox"], ["Office", "Obsidian"]],
+    "tweaks": ["optimize_swappiness", "optimize_filesystem"],
+    "security": [],
+    "check_nvidia": false,
+    "gaming_stack": false
+  },
+  "Gaming Rig": {
+    "desc": "Steam, gaming launchers, performance tweaks, and a GPU driver check.",
+    "apps": [["Gaming", "Steam"], ["Gaming", "Lutris"], ["Gaming", "Discord"], ["Multimedia", "OBS Studio"]],
+    "tweaks": ["optimize_swappiness", "optimize_gaming", "optimize_vfs"],
+    "security": [],
+    "check_nvidia": true,
+    "gaming_stack": true
+  },
+  "Minimal Server": {
+    "desc": "Update, firewall, fail2ban, and swappiness tuning. No desktop apps installed.",
+    "apps": [],
+    "tweaks": ["optimize_swappiness"],
+    "security": ["firewall", "fail2ban"],
+    "check_nvidia": false,
+    "gaming_stack": false
+  },
+  "Privacy Focused": {
+    "desc": "Privacy-respecting apps and a locked-down firewall.",
+    "apps": [["Browsers", "Brave"], ["System", "ProtonVPN"], ["System", "Bitwarden"], ["System", "BleachBit"]],
+    "tweaks": [],
+    "security": ["firewall"],
+    "check_nvidia": false,
+    "gaming_stack": false
+  }
+}

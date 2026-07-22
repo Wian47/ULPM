@@ -14,6 +14,9 @@ from importlib import resources
 
 from .tweaks import SystemOptimizer
 from .safety import SystemGuard
+from .security import SecurityManager
+from .drivers import DriverManager
+from .shell_setup import ShellSetup
 
 app = typer.Typer(help="Universal Linux Package Manager (ULPM) - A beautiful CLI for managing Flatpak, Snap, and System Packages.")
 console = Console()
@@ -951,7 +954,35 @@ def load_curated_apps():
     except (FileNotFoundError, ModuleNotFoundError):
         return {}
 
+def load_profiles():
+    try:
+        data = resources.files("ulpm").joinpath("profiles.json").read_text()
+        return json.loads(data)
+    except (FileNotFoundError, ModuleNotFoundError):
+        return {}
+
 CURATED_APPS = load_curated_apps()
+PROFILES = load_profiles()
+
+def install_curated_app(app_data: dict) -> bool:
+    """Tries Flatpak first, then Snap, for a curated app entry. Shared by the
+    curated-app browser and setup profiles so both stay in sync."""
+    name = app_data['name']
+
+    flatpak_mgr = next((m for m in managers if isinstance(m, FlatpakManager)), None)
+    if flatpak_mgr and 'flatpak' in app_data:
+        console.print(f"Installing [cyan]{name}[/cyan] via Flatpak...")
+        if flatpak_mgr.install(app_data['flatpak']):
+            return True
+
+    snap_mgr = next((m for m in managers if isinstance(m, SnapManager)), None)
+    if snap_mgr and 'snap' in app_data:
+        console.print(f"Installing [cyan]{name}[/cyan] via Snap...")
+        if snap_mgr.install(app_data['snap']):
+            return True
+
+    console.print(f"[red]Could not install {name}. Check logs or try another manager.[/red]")
+    return False
 
 def bootstrap_app_stores():
     """On a fresh box, Flatpak/Snap usually aren't preinstalled. Offer to install
@@ -1158,29 +1189,8 @@ def interactive_curated():
             console.print(Panel(f"[bold green]Installing {len(selected_apps)} applications...[/bold green]"))
             
             for cat, i in selected_apps:
-                app_data = CURATED_APPS[cat][i]
-                name = app_data['name']
-                
-                installed = False
-                
-                # Try Flatpak
-                flatpak_mgr = next((m for m in managers if isinstance(m, FlatpakManager)), None)
-                if flatpak_mgr and 'flatpak' in app_data:
-                    console.print(f"Installing [cyan]{name}[/cyan] via Flatpak...")
-                    if flatpak_mgr.install(app_data['flatpak']):
-                        installed = True
-                
-                # Try Snap if not installed
-                if not installed:
-                    snap_mgr = next((m for m in managers if isinstance(m, SnapManager)), None)
-                    if snap_mgr and 'snap' in app_data:
-                        console.print(f"Installing [cyan]{name}[/cyan] via Snap...")
-                        if snap_mgr.install(app_data['snap']):
-                            installed = True
-                
-                if not installed:
-                    console.print(f"[red]Could not install {name}. Check logs or try another manager.[/red]")
-            
+                install_curated_app(CURATED_APPS[cat][i])
+
             console.print("\n[bold green]Batch installation complete![/bold green]")
             Prompt.ask("Press Enter to continue")
             selected_apps.clear()
@@ -1247,76 +1257,84 @@ def interactive_tweaks():
         Prompt.ask("Press Enter to continue")
 
 def interactive_deploy():
-    optimizer = SystemOptimizer(console, guard)
     console.clear()
-    console.print(Panel("[bold green]One-Click System Setup[/bold green]", subtitle="Update, Optimize & Install Essentials"))
-    
-    console.print("This will perform the following actions:")
-    console.print("1. [cyan]Update System Packages[/cyan]")
-    console.print("2. [cyan]Apply Performance Tweaks[/cyan] (Swappiness)")
-    console.print("3. [cyan]Install Essential Apps[/cyan]:")
-    console.print("   - Google Chrome (Browser)")
-    console.print("   - VLC (Media)")
-    console.print("   - Discord (Communication)")
-    console.print("   - VS Code (Development)")
-    console.print("   - Flameshot (Tools)")
-    
-    if not Confirm.ask("\n[bold yellow]Are you ready to start?[/bold yellow]"):
+    console.print(Panel("[bold green]One-Click System Setup[/bold green]", subtitle="Pick a profile"))
+
+    if not PROFILES:
+        console.print("[red]No setup profiles found (profiles.json missing or empty).[/red]")
+        Prompt.ask("Press Enter to return to menu")
         return
 
-    # 1. System Update
-    console.print("\n[bold blue]Step 1: Updating System...[/bold blue]")
-    optimizer.update_system()
-    
-    # 2. Optimization
-    console.print("\n[bold blue]Step 2: Optimizing Performance...[/bold blue]")
-    optimizer.optimize_swappiness()
-    
-    # 3. Install Essentials
-    console.print("\n[bold blue]Step 3: Installing Essentials...[/bold blue]")
-    essentials = [
-        ("Browsers", "Google Chrome"),
-        ("Multimedia", "VLC"),
-        ("Communication", "Discord"),
-        ("Development", "VS Code"),
-        ("Tools", "Flameshot")
-    ]
-    
-    for cat, app_name in essentials:
-        # Find app data
-        found = False
-        if cat in CURATED_APPS:
-            for app in CURATED_APPS[cat]:
-                if app['name'] == app_name:
-                    # Install logic (similar to interactive_curated)
-                    installed = False
-                    
-                    # Try Flatpak
-                    flatpak_mgr = next((m for m in managers if isinstance(m, FlatpakManager)), None)
-                    if flatpak_mgr and 'flatpak' in app:
-                        console.print(f"Installing [cyan]{app_name}[/cyan] via Flatpak...")
-                        if flatpak_mgr.install(app['flatpak']):
-                            installed = True
-                    
-                    # Try Snap
-                    if not installed:
-                        snap_mgr = next((m for m in managers if isinstance(m, SnapManager)), None)
-                        if snap_mgr and 'snap' in app:
-                            console.print(f"Installing [cyan]{app_name}[/cyan] via Snap...")
-                            if snap_mgr.install(app['snap']):
-                                installed = True
-                    
-                    if installed:
-                        console.print(f"[green]✓ {app_name} installed.[/green]")
-                    else:
-                        console.print(f"[red]✗ Failed to install {app_name}.[/red]")
-                    found = True
-                    break
-        
-        if not found:
-            console.print(f"[yellow]Could not find data for {app_name}[/yellow]")
+    names = list(PROFILES.keys())
+    for idx, name in enumerate(names, 1):
+        p = PROFILES[name]
+        console.print(f"{idx}. [bold cyan]{name}[/bold cyan] - {p['desc']}")
 
-    console.print("\n[bold green]✨ System Setup Complete! ✨[/bold green]")
+    choice = Prompt.ask("Choose a profile (or 'b' to back)", default="b")
+    if choice.lower() == 'b':
+        return
+    if not choice.isdigit() or not (1 <= int(choice) <= len(names)):
+        console.print("[red]Invalid selection.[/red]")
+        Prompt.ask("Press Enter to continue")
+        return
+
+    profile_name = names[int(choice) - 1]
+    profile = PROFILES[profile_name]
+
+    console.print(f"\n[bold]{profile_name}[/bold] will:")
+    console.print("  - Update system packages")
+    if profile.get("tweaks"):
+        console.print(f"  - Apply tweaks: {', '.join(profile['tweaks'])}")
+    if profile.get("security"):
+        console.print(f"  - Enable security hardening: {', '.join(profile['security'])}")
+    if profile.get("apps"):
+        console.print(f"  - Install {len(profile['apps'])} curated apps")
+    if profile.get("gaming_stack"):
+        console.print("  - Install gaming performance tools (gamemode, mangohud)")
+    if profile.get("check_nvidia"):
+        console.print("  - Check for an NVIDIA GPU and offer to install drivers")
+
+    if not Confirm.ask("\n[bold yellow]Ready to start?[/bold yellow]"):
+        return
+
+    optimizer = SystemOptimizer(console, guard)
+    security_mgr = SecurityManager(console, guard)
+    driver_mgr = DriverManager(console, guard)
+    system_mgr = managers[2] if len(managers) > 2 else None
+
+    console.print("\n[bold blue]Updating system packages...[/bold blue]")
+    optimizer.update_system()
+
+    for method_name in profile.get("tweaks", []):
+        method = getattr(optimizer, method_name, None)
+        if method:
+            method()
+
+    for action in profile.get("security", []):
+        if action == "firewall":
+            security_mgr.enable_firewall()
+        elif action == "fail2ban":
+            security_mgr.install_fail2ban(system_mgr)
+
+    if profile.get("apps"):
+        console.print("\n[bold blue]Installing apps...[/bold blue]")
+        for cat, app_name in profile["apps"]:
+            app_data = next((a for a in CURATED_APPS.get(cat, []) if a["name"] == app_name), None)
+            if app_data:
+                install_curated_app(app_data)
+            else:
+                console.print(f"[yellow]Could not find data for {app_name}[/yellow]")
+
+    if profile.get("gaming_stack"):
+        console.print("\n[bold blue]Installing gaming performance tools...[/bold blue]")
+        driver_mgr.install_gaming_stack(system_mgr)
+
+    if profile.get("check_nvidia") and driver_mgr.detect_nvidia():
+        console.print("\n[yellow]An NVIDIA GPU was detected.[/yellow]")
+        if Confirm.ask("Install the proprietary NVIDIA driver?"):
+            driver_mgr.install_nvidia_driver(system_mgr)
+
+    console.print(f"\n[bold green]✨ {profile_name} setup complete! ✨[/bold green]")
     Prompt.ask("Press Enter to return to menu")
 
 def interactive_history():
@@ -1339,6 +1357,60 @@ def interactive_history():
                 guard.undo(None)
                 Prompt.ask("Press Enter to continue")
 
+def interactive_security():
+    security_mgr = SecurityManager(console, guard)
+    driver_mgr = DriverManager(console, guard)
+    shell_setup = ShellSetup(console, guard)
+    system_mgr = managers[2] if len(managers) > 2 else None
+
+    while True:
+        console.clear()
+        console.print(Panel("[bold white]Security, Drivers & Shell[/bold white]"))
+
+        backend = security_mgr.firewall_backend()
+        fw_label = f"{backend} - {security_mgr.firewall_status()}" if backend else "not available"
+        console.print(f"1. [cyan]Enable Firewall[/cyan] (current: {fw_label})")
+        console.print("2. [cyan]Install & Enable fail2ban[/cyan]")
+        console.print("3. [bold red]Harden SSH[/bold red] (disables password login - key auth only)")
+        console.print("4. [cyan]Detect & Install NVIDIA Driver[/cyan]")
+        console.print("5. [cyan]Install Gaming Performance Tools[/cyan] (gamemode, mangohud)")
+        console.print("6. [cyan]Install zsh + starship[/cyan]")
+        console.print("7. [cyan]Install fish[/cyan]")
+        console.print("8. [bold]Back[/bold]")
+
+        choice = Prompt.ask("Choose an option", choices=["1", "2", "3", "4", "5", "6", "7", "8"])
+
+        if choice == "1":
+            security_mgr.enable_firewall()
+        elif choice == "2":
+            security_mgr.install_fail2ban(system_mgr)
+        elif choice == "3":
+            console.print("[bold red]Warning:[/bold red] this disables SSH password login and root login.")
+            console.print("Only continue if you already have SSH key-based login working -- on a remote")
+            console.print("machine, getting this wrong can lock you out entirely.")
+            if Confirm.ask("Do you have working SSH key-based login set up already?", default=False):
+                if Confirm.ask("[bold red]Confirm: harden SSH now?[/bold red]"):
+                    security_mgr.harden_ssh()
+            else:
+                console.print("[yellow]Skipped. Set up SSH keys first.[/yellow]")
+        elif choice == "4":
+            if driver_mgr.detect_nvidia():
+                console.print("[green]NVIDIA GPU detected.[/green]")
+                if Confirm.ask("Install the proprietary NVIDIA driver?"):
+                    driver_mgr.install_nvidia_driver(system_mgr)
+            else:
+                console.print("[yellow]No NVIDIA GPU detected.[/yellow]")
+        elif choice == "5":
+            driver_mgr.install_gaming_stack(system_mgr)
+        elif choice == "6":
+            shell_setup.install_shell(system_mgr, "zsh")
+        elif choice == "7":
+            shell_setup.install_shell(system_mgr, "fish")
+        elif choice == "8":
+            break
+
+        Prompt.ask("Press Enter to continue")
+
 def main_menu():
     while True:
         console.clear()
@@ -1350,9 +1422,10 @@ def main_menu():
         console.print("5. [bold white]Advanced Optimization[/bold white]")
         console.print("6. [bold green]One-Click Setup[/bold green]")
         console.print("7. [bold cyan]Change History / Undo[/bold cyan]")
-        console.print("8. [bold red]Exit[/bold red]")
+        console.print("8. [bold white]Security, Drivers & Shell[/bold white]")
+        console.print("9. [bold red]Exit[/bold red]")
 
-        choice = Prompt.ask("Choose an option", choices=["1", "2", "3", "4", "5", "6", "7", "8"], default="1")
+        choice = Prompt.ask("Choose an option", choices=["1", "2", "3", "4", "5", "6", "7", "8", "9"], default="1")
 
         if choice == "1":
             interactive_search()
@@ -1370,6 +1443,8 @@ def main_menu():
         elif choice == "7":
             interactive_history()
         elif choice == "8":
+            interactive_security()
+        elif choice == "9":
             console.print("[bold]Goodbye![/bold]")
             break
 
